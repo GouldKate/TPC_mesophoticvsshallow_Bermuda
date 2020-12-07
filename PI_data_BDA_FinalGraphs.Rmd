@@ -1,0 +1,614 @@
+---
+title: "PI_date_ BDA"
+author: "Gould, Katelyn"
+date: "10/15/2019"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    df_print: kable 
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+#Description
+In this file I make the Photosynthsis Irradiance curved based on coral oxygen production rate over incidient light intesnsity (PAR) in corals from two sites in Bermuda, Hog Breaker (5-10m) & Hog Beacon (30-35m). This data is being used to support research on bleaching thresholds in bermudian corals across depth.
+</br></br>
+## What is in this file?
+Data cleaning P/I curve data and curve fittinge
+and graph creation using the package "ggplot2" and others
+P/I parameter estimates including the compensation point- Irradiance where photosynthesis= 0
+Saturation point- maximum rate of photosynthesis (Pmax)
+Evidence of photoinhibition- a decrease or plateau in photosynthetic rate after Pmax is reached.
+</br></br>
+
+
+```{r setup, results='hide', message=FALSE}
+knitr::opts_chunk$set(echo = TRUE) 
+knitr::opts_chunk$set(warning= FALSE) 
+
+library(tidyverse)
+library(here)
+library(readr)
+library(ggplot2)
+library(esquisse)
+library(rvg)
+library(minpack.lm)
+library(plyr)
+library(chron)
+library(lubridate)
+library(LoLinR)
+library(gridExtra)
+library(plotrix)
+library(segmented)
+library(devtools)
+library("usethis")
+library("rvg")
+library("esquisse")
+library("here")     
+library( "forcats")
+library( "stringr")
+library( "dplyr")
+library(kableExtra)
+  
+  #[17] "purrr"      "readr"      "tidyr"      "tibble"     "ggplot2"    "tidyverse"  "stats"      "graphics"  
+#[25] "grDevices"  "utils"      "datasets"   "methods"    "base"  
+```
+
+
+```{r results='hide', message=FALSE}
+#load in data sheet
+#
+#
+#Photo.R <- read.csv("C:/Github/TPC_BDA_github/PI_Curves/PI#_output/Photo.CurveRates_PI.csv")
+Photo.R<-read.csv("C:/Github/TPC_BDA_github/PI_Curves/PI_output/Photo.Rlog.csv")
+View(Photo.R)
+Photo.R$X<-NULL
+PIraw<-ggplot(Photo.R, aes(x=avgPAR, y=umol.cm2.hr, col = fragment.ID))+
+  geom_point()+  
+  ylim(0,1.5)+
+  xlab(expression("Photosynthetically Active Radiation ("*mu*"mol photons "*m^-2*s^-1*")"))+
+  ylab(expression(Rate* " ("*mu*"mol"*O[2]*""*cm^-2*h^-1*")"))+
+  facet_wrap(~treatment)
+
+PIraw
+
+ggplot(Photo.R, aes(x=avgPAR, y=Rate.ln, col = fragment.ID))+
+  geom_point()+ 
+  xlab(expression("Photosynthetically Active Radiation ("*mu*"mol photons "*m^-2*s^-1*")"))+
+  ylab(expression(Rate* " ("*mu*"mol"*O[2]*""*cm^-2*h^-1*")"))+
+  facet_wrap(~treatment)
+```
+
+# PI CURVE FIT- BDA
+#pull out all numerica data point for shallow and deep 
+
+```{r results='hide', message=FALSE}
+Photo.Rs<-subset(Photo.R, treatment=="shallow")
+View(Photo.Rs)
+
+Photo.RD<-subset(Photo.R, treatment=="deep")
+View(Photo.RD)
+
+Shal <- aggregate(umol.cm2.hr ~indPAR, data = Photo.Rs, FUN=mean)
+Deep <- aggregate(umol.cm2.hr ~ indPAR, data =  Photo.RD, FUN=mean)
+Shal.se <- aggregate(umol.cm2.hr ~ avgPAR, data = Photo.Rs, FUN=std.error)
+Deep.se<- aggregate(umol.cm2.hr ~ avgPAR, data = Photo.RD, FUN=std.error)
+
+#light levels used for experiment- All corals were mixed in each trial
+
+light<- mean(c(578, 588, 585, 598, 579, 579, 581, 580))
+
+light.se<-std.error(c(578, 588, 585, 598, 579, 579, 581, 580))
+
+```
+
+# Plot Photosynthetic rate over PAR for Shallow site
+
+```{r}
+
+
+# seperate PAR and umol.cm2.hr into two data frames
+PARs <- as.numeric(Shal$indPAR)
+
+PCs <- as.numeric(Shal$umol.cm2.h)
+
+
+#fit a model using a Nonlinear Least Squares regression of a non-rectangular hyperbola (Marshall & Biscoe, 1980)
+curve.nlslrc= nlsLM(PCs~(1/(2*theta))*(AQY*PARs+Am-sqrt((AQY*PARs+Am)^2-4*AQY*theta*Am*PARs))-Rd,start=list(Am=(max(PCs)-min(PCs)),AQY=0.0001,Rd=-min(PCs),theta=0.5))
+
+my.fit <- summary(curve.nlslrc)
+#summary of model fit
+
+
+#Amax (max gross photosytnthetic rate)
+
+Pmax.gross <- my.fit$parameters[1]
+
+
+#AQY (apparent quantum yield) alpha
+
+AQY <- my.fit$parameters[2]
+
+
+#Rd (dark respiration)
+
+Rd <- my.fit$parameters[3]
+
+
+# Ik light saturation point
+
+Ik <- Pmax.gross/AQY
+
+# Ic light compensation point
+Ic <- Rd/AQY
+
+# Net photosynthetic rates
+Pmax.net <- Pmax.gross - Rd
+
+
+#output parameters into a table
+Shallow.PI.Output <- rbind(Pmax.gross, Pmax.net, -Rd, AQY,Ik,Ic)
+row.names(Shallow.PI.Output) <- c("PGross.max","Pnet.max","Rdark","alpha", "Ik", "Ic")
+Shallow.PI.Output
+
+```
+
+```{r results='hide',  message=FALSE}
+#Plot input data and model fit
+shallowPIC<-plot(PARs,PCs,xlab="", ylab="", xlim=c(0,max(PARs)), ylim=c(0,1.5),cex.lab=0.8,cex.axis=0.8,cex=1,main="A) Hog Beacon", adj = 0.05) #set plot info
+segments(PARs,PCs-Shal.se$umol.cm2.hr,PARs,PCs+Shal.se$umol.cm2.hr)
+mtext(expression("Irradiance ("*mu*"mol photons "*m^-2*s^-1*")"),side=1,line=3.3,cex=1) #add labels
+mtext(expression(Rate*" ("*mu*"mol "*O[2]*" "*cm^-2*h^-1*")"),side=2,line=2,cex=1) #add labels
+#draw the curve using the model fit
+curve((1/(2*summary(curve.nlslrc)$coef[4,1]))*(summary(curve.nlslrc)$coef[2,1]*x+summary(curve.nlslrc)$coef[1,1]-sqrt((summary(curve.nlslrc)$coef[2,1]*x+summary(curve.nlslrc)$coef[1,1])^2-4*summary(curve.nlslrc)$coef[2,1]*summary(curve.nlslrc)$coef[4,1]*summary(curve.nlslrc)$coef[1,1]*x))-summary(curve.nlslrc)$coef[3,1],lwd=2,col="Red",add=T)
+abline(v=Shallow.PI.Output[5], col="gray", lty = 2)
+abline(v=light, col="black", lty = 2) #add line for TPC light level
+#text(x =650, y = 1.5, label = "TPC light", srt = 0)
+# add a line to figure for the Ik or saturation point 
+abline(v=Ik, col="blue", lty=3, lwd = 3)
+#text(x =250, y = 1.5, label = "Ik", srt = 0)
+
+#plot(PARs,PCs,xlab="", ylab="", xlim=c(0,max(PARs)), #ylim=c(0,1.5),cex.lab=0.8,cex.axis=0.8,cex=1,main="A) Shallow", #adj = 0.05) #set plot info
+#segments(PARs,PCs-Shal.se$umol.cm2.hr,PARs,PCs+Shal.se$umol.cm2#.hr)
+#mtext(expression("Irradiance ("*mu*"mol photons #"*m^-2*s^-1*")"),side=1,line=3.3,cex=1) #add labels
+#mtext(expression(Rate*" ("*mu*"mol "*O[2]*" #"*cm^-2*h^-1*")"),side=2,line=2,cex=1) #add labels
+##draw the curve using the model fit
+#curve((1/(2*summary(curve.nlslrc)$coef[4,1]))*(summary(curve.nl#slrc)$coef[2,1]*x+summary(curve.nlslrc)$coef[1,1]-sqrt((summary#(curve.nlslrc)$coef[2,1]*x+summary(curve.nlslrc)$coef[1,1])^2-4#*summary(curve.nlslrc)$coef[2,1]*summary(curve.nlslrc)$coef[4,1#]*summary(curve.nlslrc)$coef[1,1]*x))-summary(curve.nlslrc)$coe#f[3,1],lwd=2,col="Red",add=T)
+#abline(v=Shallow.PI.Output[5], col="gray", lty = 2)
+#abline(v=light, col="black", lty = 2) #add line for TPC light #level
+#text(x =650, y = 1.5, label = "TPC light", srt = 0)
+## add a line to figure for the Ik or saturation point 
+#abline(v=Ik, col="blue", lty=3, lwd = 3)
+#text(x =250, y = 1.5, label = "Ik", srt = 0)
+
+
+```
+
+# Plot Photosynthetic rate over PAR for DEEP site
+
+```{r include=false,  message=FALSE}
+
+dev.off()
+
+# seperate PAR and umol.cm2.hr into two data frames
+PARd <- as.numeric(Deep$indPAR)
+
+PCd <- as.numeric(Deep$umol.cm2.h)
+
+
+#fit a model using a Nonlinear Least Squares regression of a non-rectangular hyperbola (Marshall & Biscoe, 1980)
+curve.nlslrcd= nlsLM(PCd ~ (1/(2*theta))*(AQY*PARd +Am-sqrt((AQY*PARd +Am)^2-4*AQY*theta*Am*PARd ))
+                  -Rd,start=list(Am=(max(PCd)-min(PCd)),AQY=0.0001,Rd=-min(PCd),theta=0.4))
+
+my.fit <- summary(curve.nlslrcd)
+
+
+#summary of model fit
+
+
+#Amax (max gross photosytnthetic rate)
+
+Pmax.gross <- my.fit$parameters[1]
+
+
+#AQY (apparent quantum yield) alpha
+
+AQY <- my.fit$parameters[2]
+
+
+#Rd (dark respiration)
+
+Rd <- my.fit$parameters[3]
+
+
+# Ik light saturation point
+
+Ik <- Pmax.gross/AQY
+
+# Ic light compensation point
+Ic <- Rd/AQY
+
+# Net photosynthetic rates
+Pmax.net <- Pmax.gross - Rd
+
+
+#output parameters into a table
+Deep.PI.Output <- rbind(Pmax.gross, Pmax.net, -Rd, AQY,Ik,Ic)
+row.names(Deep.PI.Output) <- c("PGross.max","Pnet.max","Rdark","alpha", "Ik", "Ic")
+Deep.PI.Output
+
+
+```
+
+```{r include=false,  message=FALSE}
+#Plot input data and model fit
+plot(PARd ,PCd,xlab="", ylab="", xlim=c(0,max(PARd )), ylim=c(0,1.5),cex.lab=0.8,cex.axis=0.8,cex=1,main="B) Deep Baby", adj = 0.05) #set plot info
+segments(PARd ,PCd-Deep.se$umol.cm2.hr,PARd ,PCd+Deep.se$umol.cm2.hr)
+mtext(expression("Irradiance ("*mu*"mol photons "*m^-2*s^-1*")"),side=1,line=3.3,cex=1) #add labels
+mtext(expression(Rate*" ("*mu*"mol "*O[2]*" "*cm^-2*h^-1*")"),side=2,line=2,cex=1) #add labels
+#draw the curve using the model fit
+#hyperbolic tangent, more common way to fit 
+curve((1/(2*summary(curve.nlslrcd)$coef[4,1]))*(summary(curve.nlslrcd)$coef[2,1]*x+summary(curve.nlslrcd)$coef[1,1]-sqrt((summary(curve.nlslrcd)$coef[2,1]*x+summary(curve.nlslrcd)$coef[1,1])^2-4*summary(curve.nlslrcd)$coef[2,1]*summary(curve.nlslrcd)$coef[4,1]*summary(curve.nlslrcd)$coef[1,1]*x))-summary(curve.nlslrcd)$coef[3,1],lwd=2,col="blue",add=T)
+abline(v=Deep.PI.Output[5], col="gray", lty = 2)
+abline(v=light, col="black", lty = 2) #add line for TPC light level
+#text(x =650, y = 1.5, label = "TPC light", srt = 0)
+# add a line to figure for the Ik or saturation point 
+abline(v=Ik, col="red", lty=3, lwd = 3)
+#text(x =150, y = 1.5, label = "Ik", srt = 0)
+
+```
+
+## By Species DLAB
+
+```{r include=false,  message=FALSE}
+Dlab <- (subset(Photo.R,species== "DLAB", avgPAR & umol.cm2.hr))
+
+PARdlab <- as.numeric(Dlab$indPAR)
+
+PCdlab <- as.numeric(Dlab$umol.cm2.h)
+
+DlabP <- aggregate(umol.cm2.hr ~ indPAR, data =  Dlab, FUN=mean)
+DlabP.se<- aggregate(umol.cm2.hr ~ avgPAR, data = Dlab, FUN=std.error)
+
+#fit a model using a Nonlinear Least Squares regression of a non-rectangular hyperbola (Marshall & Biscoe, 1980)
+curve.nlslrcdlab= nlsLM(PCdlab ~ (1/(2*theta))*(AQY*PARdlab +Am-sqrt((AQY*PARdlab +Am)^2-4*AQY*theta*Am*PARdlab ))
+                  -Rd,start=list(Am=(max(PCdlab)-min(PCdlab)),AQY=0.0001,Rd=-min(PCdlab),theta=0.4))
+
+
+my.fit <- summary(curve.nlslrcdlab)
+#summary of model fit
+
+
+#Amax (max gross photosytnthetic rate)
+
+Pmax.gross <- my.fit$parameters[1]
+
+
+#AQY (apparent quantum yield) alpha
+
+AQY <- my.fit$parameters[2]
+
+
+#Rd (dark respiration)
+
+Rd <- my.fit$parameters[3]
+
+
+# Ik light saturation point
+
+Ik <- Pmax.gross/AQY
+
+# Ic light compensation point
+Ic <- Rd/AQY
+
+# Net photosynthetic rates
+Pmax.net <- Pmax.gross - Rd
+
+
+#output parameters intol a table
+Dlab.PI.Output <- rbind(Pmax.gross, Pmax.net, -Rd, AQY,Ik,Ic)
+row.names(Dlab.PI.Output) <- c("PGross.max","Pnet.max","Rdark","alpha", "Ik", "Ic")
+Dlab.PI.Output
+
+
+```
+
+```{r include=false,  message=FALSE}
+#Plot input data and model fit
+plot(PARdlab ,PCdlab,xlab="", ylab="", xlim=c(0,max(PARdlab )), ylim=c(0,1.5),cex.lab=0.8,cex.axis=0.8,cex=1,main="DLAB", adj = 0.05) #set plot info
+segments(PARdlab ,PCdlab-DlabP.se$umol.cm2.hr,PARdlab ,PCdlab+DlabP.se$umol.cm2.hr)
+mtext(expression("Irradiance ("*mu*"mol photons "*m^-2*s^-1*")"),side=1,line=3.3,cex=1) #add labels
+mtext(expression(Rate*" ("*mu*"mol "*O[2]*" "*cm^-2*h^-1*")"),side=2,line=2,cex=1) #add labels
+#draw the curve using the model fit
+#hyperbolic tangent, more common way to fit 
+curve((1/(2*summary(curve.nlslrcdlab)$coef[4,1]))*(summary(curve.nlslrcdlab)$coef[2,1]*x+summary(curve.nlslrcdlab)$coef[1,1]-sqrt((summary(curve.nlslrcdlab)$coef[2,1]*x+summary(curve.nlslrcdlab)$coef[1,1])^2-4*summary(curve.nlslrcdlab)$coef[2,1]*summary(curve.nlslrcdlab)$coef[4,1]*summary(curve.nlslrcdlab)$coef[1,1]*x))-summary(curve.nlslrcdlab)$coef[3,1],lwd=2,col="blue",add=T)
+abline(v=Dlab.PI.Output[5], col="gray", lty = 2)
+abline(v=light, col="black", lty = 2) #add line for TPC light level
+text(x =650, y = 1.5, label = "TPC light", srt = 0)
+# add a line to figure for the Ik or saturation point 
+abline(v=Ik, col="red", lty=3, lwd = 3)
+text(x =100, y = 1.5, label = "Ik", srt = 0)
+
+```
+
+## By Species MCAV
+
+```{r include=false,  message=FALSE}
+
+
+
+Mcav <- (subset(Photo.R,species== "MCAV", avgPAR & umol.cm2.hr))
+
+PARMcav <- as.numeric(Mcav$indPAR)
+
+PCMcav <- as.numeric(Mcav$umol.cm2.h)
+
+McavP <- aggregate(umol.cm2.hr ~ indPAR, data =  Mcav, FUN=mean)
+McavP.se<- aggregate(umol.cm2.hr ~ avgPAR, data = Mcav, FUN=std.error)
+
+#fit a model using a Nonlinear Least Squares regression of a non-rectangular hyperbola (Marshall & Biscoe, 1980)
+curve.nlslrcMcav= nlsLM(PCMcav ~ (1/(2*theta))*(AQY*PARMcav +Am-sqrt((AQY*PARMcav +Am)^2-4*AQY*theta*Am*PARMcav ))
+                  -Rd,start=list(Am=(max(PCMcav)-min(PCMcav)),AQY=0.0001,Rd=-min(PCMcav),theta=0.3))
+
+
+my.fit <- summary(curve.nlslrcMcav)
+#summary of model fit
+
+
+#Amax (max gross photosytnthetic rate)
+
+Pmax.gross <- my.fit$parameters[1]
+
+
+#AQY (apparent quantum yield) alpha
+
+AQY <- my.fit$parameters[2]
+
+
+#Rd (dark respiration)
+
+Rd <- my.fit$parameters[3]
+
+
+# Ik light saturation point
+
+Ik <- Pmax.gross/AQY
+
+# Ic light compensation point
+Ic <- Rd/AQY
+
+# Net photosynthetic rates
+Pmax.net <- Pmax.gross - Rd
+
+
+#output parameters intol a table
+Mcav.PI.Output <- rbind(Pmax.gross, Pmax.net, -Rd, AQY,Ik,Ic)
+row.names(Mcav.PI.Output) <- c("PGross.max","Pnet.max","Rdark","alpha", "Ik", "Ic")
+Mcav.PI.Output
+
+
+```
+
+```{r include=false,  message=FALSE}
+#Plot input data and model fit
+plot(PARMcav ,PCMcav,xlab="", ylab="", xlim=c(0,max(PARMcav )), ylim=c(0,1.5),cex.lab=0.8,cex.axis=0.8,cex=1,main="MCAV", adj = 0.05) #set plot info
+segments(PARMcav ,PCMcav-McavP.se$umol.cm2.hr,PARMcav ,PCMcav+McavP.se$umol.cm2.hr)
+mtext(expression("Irradiance ("*mu*"mol photons "*m^-2*s^-1*")"),side=1,line=3.3,cex=1) #add labels
+mtext(expression(Rate*" ("*mu*"mol "*O[2]*" "*cm^-2*h^-1*")"),side=2,line=2,cex=1) #add labels
+#draw the curve using the model fit
+#hyperbolic tangent, more common way to fit 
+curve((1/(2*summary(curve.nlslrcMcav)$coef[4,1]))*(summary(curve.nlslrcMcav)$coef[2,1]*x+summary(curve.nlslrcMcav)$coef[1,1]-sqrt((summary(curve.nlslrcMcav)$coef[2,1]*x+summary(curve.nlslrcMcav)$coef[1,1])^2-4*summary(curve.nlslrcMcav)$coef[2,1]*summary(curve.nlslrcMcav)$coef[4,1]*summary(curve.nlslrcMcav)$coef[1,1]*x))-summary(curve.nlslrcMcav)$coef[3,1],lwd=2,col="blue",add=T)
+abline(v=Mcav.PI.Output[5], col="gray", lty = 2)
+abline(v=light, col="black", lty = 2) #add line for TPC light level
+text(x =650, y = 1.5, label = "TPC light", srt = 0)
+# add a line to figure for the Ik or saturation point 
+abline(v=Ik, col="red", lty=3, lwd = 3)
+text(x =100, y = 1.5, label = "Ik", srt = 0)
+
+```
+
+
+## By Species OFRA
+
+```{r include=false,  message=FALSE}
+
+
+
+Ofra <- (subset(Photo.R,species== "OFRA", avgPAR & umol.cm2.hr))
+
+PAROfra <- as.numeric(Ofra$indPAR)
+
+PCOfra <- as.numeric(Ofra$umol.cm2.h)
+
+OfraP <- aggregate(umol.cm2.hr ~ indPAR, data =  Ofra, FUN=mean)
+OfraP.se<- aggregate(umol.cm2.hr ~ avgPAR, data = Ofra, FUN=std.error)
+
+#fit a model using a Nonlinear Least Squares regression of a non-rectangular hyperbola (Marshall & Biscoe, 1980)
+curve.nlslrcOfra= nlsLM(PCOfra ~ (1/(2*theta))*(AQY*PAROfra +Am-sqrt((AQY*PAROfra +Am)^2-4*AQY*theta*Am*PAROfra ))
+                  -Rd,start=list(Am=(max(PCOfra)-min(PCOfra)),AQY=0.0001,Rd=-min(PCOfra),theta=0.3))
+
+
+my.fit <- summary(curve.nlslrcOfra)
+#summary of model fit
+
+
+#Amax (max gross photosytnthetic rate)
+
+Pmax.gross <- my.fit$parameters[1]
+
+
+#AQY (apparent quantum yield) alpha
+
+AQY <- my.fit$parameters[2]
+
+
+#Rd (dark respiration)
+
+Rd <- my.fit$parameters[3]
+
+
+# Ik light saturation point
+
+Ik <- Pmax.gross/AQY
+
+# Ic light compensation point
+Ic <- Rd/AQY
+
+# Net photosynthetic rates
+Pmax.net <- Pmax.gross - Rd
+
+
+#output parameters intol a table
+Ofra.PI.Output <- rbind(Pmax.gross, Pmax.net, -Rd, AQY,Ik,Ic)
+row.names(Ofra.PI.Output) <- c("PGross.max","Pnet.max","Rdark","alpha", "Ik", "Ic")
+Ofra.PI.Output
+
+
+```
+
+```{r include=false,  message=FALSE}
+#Plot input data and model fit
+plot(PAROfra ,PCOfra,xlab="", ylab="", xlim=c(0,max(PAROfra )), ylim=c(0,1.55),cex.lab=0.8,cex.axis=0.8,cex=1,main="OFRA", adj = 0.05) #set plot info
+segments(PAROfra ,PCOfra-OfraP.se$umol.cm2.hr,PAROfra ,PCOfra+OfraP.se$umol.cm2.hr)
+mtext(expression("Irradiance ("*mu*"mol photons "*m^-2*s^-1*")"),side=1,line=3.3,cex=1) #add labels
+mtext(expression(Rate*" ("*mu*"mol "*O[2]*" "*cm^-2*h^-1*")"),side=2,line=2,cex=1) #add labels
+#draw the curve using the model fit
+#hyperbolic tangent, more common way to fit 
+curve((1/(2*summary(curve.nlslrcOfra)$coef[4,1]))*(summary(curve.nlslrcOfra)$coef[2,1]*x+summary(curve.nlslrcOfra)$coef[1,1]-sqrt((summary(curve.nlslrcOfra)$coef[2,1]*x+summary(curve.nlslrcOfra)$coef[1,1])^2-4*summary(curve.nlslrcOfra)$coef[2,1]*summary(curve.nlslrcOfra)$coef[4,1]*summary(curve.nlslrcOfra)$coef[1,1]*x))-summary(curve.nlslrcOfra)$coef[3,1],lwd=2,col="blue",add=T)
+abline(v=Ofra.PI.Output[5], col="gray", lty = 2)
+abline(v=light, col="black", lty = 2) #add line for TPC light level
+text(x =650, y = 1.5, label = "TPC light", srt = 0)
+# add a line to figure for the Ik or saturation point 
+abline(v=Ik, col="red", lty=3, lwd = 3)
+text(x =100, y = 1.5, label = "Ik", srt = 0)
+
+```
+
+
+## By Species PAST
+ 
+```{r include=false,  message=FALSE}
+
+
+
+Past <- (subset(Photo.R,species== "PAST", avgPAR & umol.cm2.hr))
+
+PARPast <- as.numeric(Past$indPAR)
+
+PCPast <- as.numeric(Past$umol.cm2.h)
+
+PastP <- aggregate(umol.cm2.hr ~ indPAR, data =  Past, FUN=mean)
+PastP.se<- aggregate(umol.cm2.hr ~ avgPAR, data = Past, FUN=std.error)
+
+#fit a model using a Nonlinear Least Squares regression of a non-rectangular hyperbola (Marshall & Biscoe, 1980)
+curve.nlslrcPast= nlsLM(PCPast ~ (1/(2*theta))*(AQY*PARPast +Am-sqrt((AQY*PARPast +Am)^2-4*AQY*theta*Am*PARPast ))
+                  -Rd,start=list(Am=(max(PCPast)-min(PCPast)),AQY=0.0001,Rd=-min(PCPast),theta=0.3))
+
+
+my.fit <- summary(curve.nlslrcPast)
+#summary of model fit
+
+
+#Amax (max gross photosytnthetic rate)
+
+Pmax.gross <- my.fit$parameters[1]
+
+
+#AQY (apparent quantum yield) alpha
+
+AQY <- my.fit$parameters[2]
+
+
+#Rd (dark respiration)
+
+Rd <- my.fit$parameters[3]
+
+
+# Ik light saturation point
+
+Ik <- Pmax.gross/AQY
+
+# Ic light compensation point
+Ic <- Rd/AQY
+
+# Net photosynthetic rates
+Pmax.net <- Pmax.gross - Rd
+
+
+#output parameters intol a table
+Past.PI.Output <- rbind(Pmax.gross, Pmax.net, -Rd, AQY,Ik,Ic)
+row.names(Past.PI.Output) <- c("PGross.max","Pnet.max","Rdark","alpha", "Ik", "Ic")
+Past.PI.Output
+
+
+```
+
+```{r include=false,  message=FALSE}
+#Plot input data and model fit
+plot(PARPast ,PCPast,xlab="", ylab="", xlim=c(0,max(PARPast )), ylim=c(0,1.5),cex.lab=0.8,cex.axis=0.8,cex=1,main="PAST", adj = 0.05) #set plot info
+segments(PARPast ,PCPast-PastP.se$umol.cm2.hr,PARPast ,PCPast+PastP.se$umol.cm2.hr)
+mtext(expression("Irradiance ("*mu*"mol photons "*m^-2*s^-1*")"),side=1,line=3.3,cex=1) #add labels
+mtext(expression(Rate*" ("*mu*"mol "*O[2]*" "*cm^-2*h^-1*")"),side=2,line=2,cex=1) #add labels
+#draw the curve using the model fit
+#hyperbolic tangent, more common way to fit 
+curve((1/(2*summary(curve.nlslrcPast)$coef[4,1]))*(summary(curve.nlslrcPast)$coef[2,1]*x+summary(curve.nlslrcPast)$coef[1,1]-sqrt((summary(curve.nlslrcPast)$coef[2,1]*x+summary(curve.nlslrcPast)$coef[1,1])^2-4*summary(curve.nlslrcPast)$coef[2,1]*summary(curve.nlslrcPast)$coef[4,1]*summary(curve.nlslrcPast)$coef[1,1]*x))-summary(curve.nlslrcPast)$coef[3,1],lwd=2,col="blue",add=T)
+abline(v=Past.PI.Output[5], col="gray", lty = 2)
+abline(v=light, col="black", lty = 2) #add line for TPC light level
+text(x =650, y = 1.5, label = "TPC light", srt = 0)
+# add a line to figure for the Ik or saturation point 
+abline(v=Ik, col="red", lty=3, lwd = 3)
+text(x =100, y = 1.5, label = "Ik", srt = 0)
+
+```
+
+#tables
+
+```{r include=false,  message=FALSE}
+
+# Use the kableExtra package to view a pretty table for a subset of the data:
+  # First, let's just subset the first 10 rows
+Shallow.PI.Output %>% 
+    # Add a title
+  kableExtra::kable(caption="Shallow PI Parameters") %>% 
+    # Specify how we will see the table, type ?kablestyling to see explanations and options
+  kable_styling(bootstrap_options = "condensed", full_width=F) 
+
+Deep.PI.Output %>% 
+    # Add a title
+  kableExtra::kable(caption="Deep PI Parameters") %>% 
+    # Specify how we will see the table, type ?kablestyling to see explanations and options
+  kable_styling(bootstrap_options = "condensed", full_width=F) 
+
+Dlab.PI.Output %>% 
+    # Add a title
+  kableExtra::kable(caption="DLAB PI Parameters") %>% 
+    # Specify how we will see the table, type ?kablestyling to see explanations and options
+  kable_styling(bootstrap_options = "condensed", full_width=F) 
+
+Mcav.PI.Output %>% 
+    # Add a title
+  kableExtra::kable(caption="MCAV PI Parameters") %>% 
+    # Specify how we will see the table, type ?kablestyling to see explanations and options
+  kable_styling(bootstrap_options = "condensed", full_width=F) 
+
+Ofra.PI.Output %>% 
+    # Add a title
+  kableExtra::kable(caption="OFRA PI Parameters") %>% 
+    # Specify how we will see the table, type ?kablestyling to see explanations and options
+  kable_styling(bootstrap_options = "condensed", full_width=F) 
+
+Past.PI.Output %>% 
+    # Add a title
+  kableExtra::kable(caption="PAST PI Parameters") %>% 
+    # Specify how we will see the table, type ?kablestyling to see explanations and options
+  kable_styling(bootstrap_options = "condensed", full_width=F) 
+
+
+
+```
+
+
+
+
