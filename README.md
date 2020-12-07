@@ -14,3 +14,6 @@ Gross respiration (R) differed among species for Pmax but not across depth for a
 local adaptation and/or acclimatization to different thermal conditions is not occurring. Rather, conspecific corals from shallow and upper-mesophotic reefs have
 similar thermal sensitivities suggesting that MCEs in Bermuda have the potential to function as thermal refuges for these four corals’ survival.
 
+The code in this repository has raw metabolic rates, the management and arrangement of those rates into data tables and the analyses of the data. 
+
+From PI curves to thermal performance curves and thermal parameter metric estimates
