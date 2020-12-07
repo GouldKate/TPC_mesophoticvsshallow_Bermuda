@@ -1,0 +1,604 @@
+---
+title: "BDA_Yearly Temperature 2018 - 2019"
+author: "Gould, Katelyn"
+date: "10/8/2019"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    df_print: kable 
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+#Description
+In this file I make graph for the change in temperature at two sites over a year from in situ data collected from a (hobo? with make/model) at two sites in Bermuda, Hog Breaker (5-10m) & Hog Beacon (30-35m). This data is being used to support research on bleaching thresholds in bermudian corals across depth.
+</br></br>
+## What is in this file?
+Data cleaning of temperature data
+and graph creation using the package "ggplots2" and others
+In situ measurements were taken at two reef sites in Bermuda
+Hog Breaker (5-10m) from 09/03/2018 through 08/21/2019
+Hog Beacon (30-35m) from 09/07/2018 through 08/20/2019
+</br></br>
+
+
+```{r setup, results='hide', message=FALSE}
+knitr::opts_chunk$set(echo = TRUE) # will automatically include code in the ouput unless we state otherwise
+knitr::opts_chunk$set(warning= FALSE) # will NOT include warning messages in the output unless we state otherwise
+# knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=TRUE) #keeps code wrapped in the output
+
+# if you haven't installed these packages run the following line (first delete the # sign):
+#install.packages(c("tidyverse", "janitor", "kableExtra", "cowplot", "skimr", "measurements"))
+
+library(esquisse)
+library(rvg)
+#library(ggplot2) # this is a part of tidyverse
+#library(plyr) # there are issues w/using plyr and dplyr in the same session, instead of loading plyr just type plyr::function when you want to use a specific function from plyr
+#library(tidyr) # this is a part of tidyverse
+library(magrittr)
+library(tidyverse)
+library(lubridate)
+library(sf)
+library(gridExtra)
+library(grid)
+library(maps)
+library(ggpubr)
+
+
+```
+
+#Cleaning Data
+```{r data inport}
+setwd("C:/Github/TPC_BDA_github")
+
+shallowtemp<- read.csv("C:/Github/TPC_BDA_github/Raw_data/HB  Raw Temp data.csv")
+deeptemp<- read.csv("C:/Github/TPC_BDA_github/Raw_data/HogBeac_Deep Raw Temp data.csv")
+
+shallowtemp$Site<-  "Shallow"
+deeptemp$Site<- "Deep"
+mean(shallowtemp$Temp...C.)
+mean(deeptemp$Temp...C.)
+
+Alltemp<- rbind(shallowtemp,deeptemp)
+
+#write.csv(Alltemp,"C:/Github/TPC_BDA_github/R_output/Final/Alltemp.csv")
+
+months <- c("December","November","October","September","August","July","June","May","April","March","February","January") ## need this string vector for sorting later
+
+
+
+Alltemp$months <- as.Date(Alltemp$Date, format = "%m/%d/%y") %>%
+  months() %>%
+  as.factor() %>%
+  factor(., levels = months)
+
+Alltemp$date <-as.Date(Alltemp$date, format= "%m/%2d/%y")
+
+Alltemp <- janitor::clean_names(Alltemp) #%>%
+  #rename(temp= 'temp_u_00b0_c')
+#write.csv(Alltemp,"C:/Github/TPC_BDA_github/R_output/Final/Alltempfinal.csv")
+
+
+```
+
+#Plot 1: Raw temp over time
+```{r graph}
+
+
+raw<-ggplot(Alltemp, aes(x=date, y=temp_c, color=site)) +
+  geom_point() +
+  theme_classic() +
+  labs(x="Date", y=expression(Raw~temp~(degree~C)))
+
+raw + scale_color_manual(breaks = c("Deep", "Shallow"),
+                        values= c("blue", "red"))
+
+```
+# Mean daily temperatures with sd and Ttest
+
+```{r}
+### With SD###
+dailymean_sd <- Alltemp %>%
+  group_by(site, date) %>%
+  mutate(meandaily_temp = round(mean(temp_c), 2), 
+         stddev_temp=sd(temp_c))%>%
+  distinct(site, date, meandaily_temp, months, stddev_temp)
+
+
+
+Deepsd<-subset(dailymean_sd, site =="Deep")
+Shallowsd<-subset(dailymean_sd, site =="Shallow")
+
+Tempgra<-ggplot(dailymean_sd, aes(x=site, meandaily_temp, colour= site))+
+  stat_boxplot(geom= "errorbar", width= 0.5, position = position_dodge(1))+
+  geom_boxplot(position = position_dodge(1))+
+  geom_point(aes(fill= months), position = position_jitterdodge(jitter.width = 0, jitter.height = 0))+
+  guides(fill= guide_legend(override.aes = list(shape= NA)))+
+  theme(panel.background=element_blank(),legend.position = "none") + #to have no gridlines behind graph
+  theme(axis.line = element_line(colour = "black")) + #add x and y line
+  xlab("Site")+
+  ylab("Daily Average Temperature")
+
+boxtemp<-Tempgra+ scale_color_manual(breaks = c("Deep", "Shallow"),values= c("blue", "red"))
+
+Shmon<-Shallowsd%>%
+  group_by(months)%>%
+  mutate(meanmonth= mean(meandaily_temp),
+         monsd= sd(meandaily_temp))%>%
+  distinct(site, meanmonth, months, monsd)
+  
+Demon<-Deepsd%>%
+  group_by(months)%>%
+  mutate(meanmonth= mean(meandaily_temp),
+         monsd= sd(meandaily_temp))%>%
+  distinct(site, meanmonth, months, monsd)
+
+monthmena<-rbind(Demon, Shmon)
+
+
+Meantemp2<-ggplot(dailymean_sd, aes(x= months, y= meandaily_temp)) +
+  geom_line(aes(color=site), size= 1.3) +
+  theme_classic() +
+  labs(x="Date", y=expression(Average~monthly~temp~(degree~C)))
+
+Meantemp2 + scale_color_manual(breaks = c("Deep", "Shallow"), values= c("blue", "red"))
+```
+
+# Max and Min of Shallow/Deep site 
+
+```{r}
+
+MaxShallow<-temp_by_day%>%
+#  filter(site!= "Deep")
+#MaxDeep<-temp_by_day%>%
+#  filter(site!= "Shallow")
+#  max(MaxDeep$avg_daily_temp)
+#   #27.8929
+#MinShallow<-temp_by_day%>%
+#  filter(site!= "Deep")
+#  min(MinShallow$avg_daily_temp)
+#    #18.69223
+#  mean(MinShallow$avg_daily_temp)
+#  # 23.88372
+#MinDeep<-temp_by_day%>%
+#  filter(site!= "Shallow")
+#  min(MinDeep$avg_daily_temp)
+#   #19.47998
+#  mean(MinDeep$avg_daily_temp)
+#    # 23.16471
+  
+  Shallow<-Alltemp%>%
+  filter(site!= "Deep")
+  max(Shallow$temp_c)
+  #30.192
+  Deep<-Alltemp%>%
+  filter(site!= "Shallow")
+ 
+  mean(Shallow$temp_c)
+    # 23.27931
+  sd(Shallow$temp_c)
+      # 3.048
+   var(Shallow$temp_c)
+      #9.291688
+   max(Shallow$temp_c)
+     #30.192
+  min(Shallow$temp_c)
+        #18.461
+
+   mean(Deep$temp_c)
+      # 23.42418
+   sd(Deep$temp_c)
+      #2.396
+    var(Deep$temp_c)
+      #5.744787
+    max(Deep$temp_c)
+     #28.692
+  min(Deep$temp_c)
+      #18.961
+ 
+
+ 
+
+
+      
+  deepvar<-sum((Deep$temp_c-mean(Deep$temp_c))^2)
+    #82541.1
+  shallvar<-sum((Shallow$temp_c-mean(Shallow$temp_c))^2)
+    #199232.4
+  (82541.1+199232.4)
+  #281773.5
+  (206.336/7.869) #F-statistic mean Sq site/mean sw residuals
+  pf(26.22138,df1=2,df2=111,lower.tail=F)
+#4.716607e-10
+  Fitlm<-lm(temp_c~site, Alltemp)
+Fitlm
+summary(Fitlm)
+Anova(Fitlm)
+anova(Fitlm)
+#3.058e-07
+
+
+```
+
+#Plot 2: Mean daily temp over time
+
+```{r plot both sites}
+#site char to factor
+Alltemp$site<-factor(Alltemp$site)
+
+
+TTtest<-compare_means (temp_c~site, data=Alltemp, method = "t.test")
+
+summary(TTtest)
+TTtest
+TTtesta<-compare_means (temp_c~site, data=Alltemp, method = "anova")
+TTtesta
+
+Fitlm<-lm(temp_c~site, Alltemp)
+Fitlm
+summary(Fitlm)
+anova(Fitlm)
+
+#Fitlm2<-lm(temp_c~site*months, Alltemp)
+#Fitlm2
+#summary(Fitlm2)
+#anova(Fitlm2)
+#montemp<-aov(temp_c~site*months, Alltemp)
+#summary(montemp)
+#TukeyHSD(montemp)
+
+## 8.1e-08 all year temps between shallow and deep
+## 3.058e-07 for lm AnoVA
+# Currently, each site has multiple temp measurements per day, due to temp being taken at different times. Here I will create a small summary table that we can use for plotting:
+
+temp_by_day <- Alltemp %>%
+  group_by(site, date) %>%
+  mutate(avg_daily_temp = mean(temp_c)) %>%
+  distinct(site, date, avg_daily_temp, months)
+
+# Winter and summer means
+
+winter<- c("November", "December", "January", "February", "March", "April")
+
+summer<- c("May", "June", "July", "August", "September", "October")
+
+### to compare to our temp data for the same months september-december 
+### 
+winter2<- c("September", "October", "November", "December", "January", "February")
+
+summer2<- c("March", "April", "May", "June", "July", "August")
+
+
+monthlymean<-temp_by_day%>%
+  group_by(site, months)%>%
+  mutate(monmean= mean(avg_daily_temp))%>%
+  mutate(sd= sd(avg_daily_temp))
+
+monthlymean2<-temp_by_day%>%
+  group_by(site, months)
+
+wint<- monthlymean%>%
+  filter(months %in% winter)%>%
+  summarise(winmean=mean(monmean))
+
+summ<-monthlymean%>%
+  filter(months %in% summer)%>%
+  summarise(summean=mean(monmean))
+
+wint2<- monthlymean%>%
+  filter(months %in% winter2)%>%
+  summarise(winmean=mean(avg_daily_temp))
+
+summ2<- monthlymean%>%
+  filter(months %in% summer2)%>%
+  summarise(summean=mean(avg_daily_temp))
+
+ wint%>%
+  filter(site!= "Shallow")%>%
+  summarise(mean= mean(winmean))
+ #deep 21.6
+  wint%>%
+  filter(site!= "Deep")%>%
+  summarise(mean= mean(winmean))
+ #shallow 21.4
+
+ summ%>%
+  filter(site!= "Shallow")%>%
+  summarise(mean= mean(summean))
+ #deep 25.1
+  summ%>%
+  filter(site!= "Deep")%>%
+  summarise(mean= mean(summean))
+  #shallow 26.7
+  
+ wint2%>%
+  filter(site!= "Shallow")%>%
+  summarise(mean= mean(winmean))
+ #deep 23.6
+  wint2%>%
+  filter(site!= "Deep")%>%
+  summarise(mean= mean(winmean))
+ #shallow 23.5
+
+summ2%>%
+  filter(site!= "Shallow")%>%
+  summarise(mean= mean(summean))
+ #deep 23.1
+  summ2%>%
+  filter(site!= "Deep")%>%
+  summarise(mean= mean(summean))
+  #shallow 24.5
+  
+  summertemp<- monthlymean%>%
+   filter(months== c("May", "June", "July", "August", "September", "October"))
+   summertemp2<- monthlymean2%>%
+   filter(months== c("March", "April", "May", "June", "July", "August"))
+
+ 
+ summertemp%>%
+ filter(site!= "Shallow")%>%
+ summarise(mean= mean(avg_daily_temp))
+ #deep 24.68452
+ summertemp2%>%
+ filter(site!= "Deep")%>%
+ summarise(mean= mean(avg_daily_temp))
+ #shallow 26.2756
+   
+Deepsum<-summertemp%>%
+  filter(site!= "Shallow")
+Shallsum<-summertemp%>%
+  filter(site!= "Deep")
+Deepsum2<-summertemp2%>%
+  filter(site!= "Shallow")
+Shallsum2<-summertemp2%>%
+  filter(site!= "Deep")
+
+
+
+mean(Deepsum$avg_daily_temp)
+#24.68452
+min(Deepsum$avg_daily_temp)
+# 21.27
+max(Deepsum$avg_daily_temp)
+# 27.36
+mean(Deepsum2$avg_daily_temp)
+#22.68778
+mean(Shallsum$avg_daily_temp)
+#26.2756 
+min(Shallsum$avg_daily_temp)
+# 22.068
+max(Shallsum$avg_daily_temp)
+# 29.3
+mean(Shallsum2$avg_daily_temp)
+#24.03289
+var(Deepsum$avg_daily_temp)
+      #3.226714
+var(Deepsum2$avg_daily_temp)
+      #4.865735
+var(Shallsum$avg_daily_temp)
+      #4.902804
+var(Shallsum2$avg_daily_temp)
+      #11.31614
+  deepsumvar<-sum((Deepsum$avg_daily_temp-mean(Deepsum$avg_daily_temp))^2)
+  deepsumvar
+    #87.12129
+  deepsumvar2<-sum((Deepsum2$avg_daily_temp-mean(Deepsum2$avg_daily_temp))^2)
+  deepsumvar2
+    #136.2406
+  shallsumvar<-sum((Shallsum2$avg_daily_temp-mean(Shallsum2$avg_daily_temp))^2)
+  shallsumvar
+    #132.3757
+  shallsumvar2<-sum((Shallsum2$avg_daily_temp-mean(Shallsum2$avg_daily_temp))^2)
+  shallsumvar2
+    #316.8518
+t.test(avg_daily_temp~site,data=summertemp) 
+# Welch 2-sample t-test
+# t = -2.9528
+# df=51.798
+# p= 0.004724
+t.test(avg_daily_temp~site,data=summertemp2) 
+
+# Welch 2-sample t-test
+# t = -1.8007
+# df=48.322
+# p= 0.07799
+
+Fitsumlm<-lm(avg_daily_temp~site, summertemp)
+Fitsumlm
+summary(Fitsumlm)
+anova(Fitsumlm)
+#anova
+#df= 54
+#f= 8.719
+#p= 0.004654
+
+#predlm<- predict(Fitsumlm, interval= "confidence")
+#sumCI<-cbind(predlm,summertemp)
+Fitsumlm2<-lm(avg_daily_temp~site, summertemp2)
+Fitsumlm2
+summary(Fitsumlm2)
+anova(Fitsumlm2)
+#anova
+#F=3.243
+#DF= 56
+#p=0.07714
+
+Meansumtemp<-ggplot(summertemp, aes(x= date, y= avg_daily_temp)) +
+  geom_line(aes(color=site), size= 1.3) +
+  theme_classic() +
+  labs(x="Date", y=expression(Average~daily~temp~(degree~C)))+ scale_color_manual(breaks = c("Deep", "Shallow"), values= c("blue", "red"))
+
+Meansumtemp
+ggexport(Meansumtemp, filename = "Meansumtemp.pdf")
+
+Meansumtemp2<-ggplot(summertemp2, aes(x= date, y= avg_daily_temp)) +
+  geom_line(aes(color=site), size= 1.3) +
+  theme_classic() +
+  labs(x="Date", y=expression(Average~daily~temp~(degree~C)))+ scale_color_manual(breaks = c("Deep", "Shallow"), values= c("blue", "red"))
+
+Meansumtemp2
+ggexport(Meansumtemp2, filename = "Meansumtemp2.pdf")
+
+### winter
+
+wintemp<- monthlymean%>%
+   filter(months== c("November", "December", "January", "February", "March", "April"))
+wintemp2<- monthlymean2%>%
+   filter(months== c("September", "October", "November", "December", "January", "February"))
+ 
+ wintemp%>%
+  filter(site!= "Shallow")%>%
+  summarise(mean= mean(avg_daily_temp))
+
+  wintemp%>%
+  filter(site!= "Deep")%>%
+  summarise(mean= mean(avg_daily_temp))
+  
+ wintemp2%>%
+  filter(site!= "Shallow")%>%
+  summarise(mean= mean(avg_daily_temp))
+
+  wintemp2%>%
+  filter(site!= "Deep")%>%
+  summarise(mean= mean(avg_daily_temp))
+ 
+ Deepwin<-wintemp%>%
+  filter(site!= "Shallow")
+
+  Shallwin<-wintemp%>%
+  filter(site!= "Deep")
+  
+  Deepwin2<-wintemp2%>%
+  filter(site!= "Shallow")
+
+  Shallwin2<-wintemp2%>%
+  filter(site!= "Deep")
+
+mean(Deepwin$avg_daily_temp)
+#21.607
+mean(Deepwin2$avg_daily_temp)
+##6 months- 23.61706
+mean(Shallwin$avg_daily_temp)
+#21.3
+mean(Shallwin2$avg_daily_temp)
+#6 months- 23.74203
+var(Deepwin$avg_daily_temp)
+      #2.620888
+var(Deepwin2$avg_daily_temp)
+     ##6.583108
+var(Shallwin2$avg_daily_temp)
+      #1.940798
+var(Shallwin2$avg_daily_temp)
+      #9.484352
+  deepwinvar<-sum((Deepwin$avg_daily_temp-mean(Deepwin$avg_daily_temp))^2)
+    #76.00576
+  deepwinvar2<-sum((Deepwin2$avg_daily_temp-mean(Deepwin2$avg_daily_temp))^2)
+    #177.7439
+  shallwinvar<-sum((Shallwin$avg_daily_temp-mean(Shallwin$avg_daily_temp))^2)
+    #56.2816
+  shallwinvar2<-sum((Shallwin2$avg_daily_temp-mean(Shallwin2$avg_daily_temp))^2)
+    #265.5619
+t.test(avg_daily_temp~site,data=wintemp)
+# welch
+# t= 0.70701
+# df=56.739
+# p= 0.4825
+t.test(avg_daily_temp~site,data=wintemp2)
+# welch
+# t= (-0.16667)
+# df= (53.862)
+# p=(0.8683)
+Fitwinlm<-lm(avg_daily_temp~site, wintemp)
+Fitwinlm
+summary(Fitwinlm)
+anova(Fitwinlm)
+#F=0.4999
+#DF= 58
+#p=0.4824
+Fitwinlm2<-lm(avg_daily_temp~site, wintemp2)
+Fitwinlm2
+summary(Fitwinlm2)
+anova(Fitwinlm2)
+#F=0.0276
+#DF=66
+#p=0.8687
+Meanwintemp<-ggplot(wintemp, aes(x= date, y= avg_daily_temp)) +
+  geom_line(aes(color=site), size= 1.3) +
+  theme_classic() +
+  labs(x="Date", y=expression(Average~daily~temp~(degree~C)))+ scale_color_manual(breaks = c("Deep", "Shallow"), values= c("blue", "red"))
+
+Meanwintemp
+ggexport(Meanwintemp, filename = "Meanwintemp.pdf")
+
+Meanwintemp2<-ggplot(wintemp2, aes(x= date, y= avg_daily_temp)) +
+  geom_line(aes(color=site), size= 1.3) +
+  theme_classic() +
+  labs(x="Date", y=expression(Average~daily~temp~(degree~C)))+ scale_color_manual(breaks = c("Deep", "Shallow"), values= c("blue", "red"))
+
+Meanwintemp2
+ggexport(Meanwintemp2, filename = "Meanwintemp2.pdf")
+#### 
+Meantemp<-ggplot(temp_by_day, aes(x= date, y= avg_daily_temp)) +
+  geom_line(aes(color=site), size= 1.3) +
+  theme_classic() +
+  labs(x="Date", y=expression(Average~daily~temp~(degree~C)))+ scale_color_manual(breaks = c("Deep", "Shallow"), values= c("blue", "red"))
+
+Meantemp
+ 
+ggexport(Meantemp, filename = "Meantemp.pdf")
+
+
+temp_by_day%>%
+  filter(site!= "Deep")%>%
+  summarise(max=max(avg_daily_temp, na.rm=T))
+	  #mean max 29.8
+ 
+temp_by_day%>%
+  filter(site!= "Shallow")%>%
+  summarise(max=max(avg_daily_temp, na.rm=T))
+  #mean max 27.9
+
+ mean(Shallowsd$meandaily_temp)
+ # Mean Shallow 23.88372
+ mean(Deepsd$meandaily_temp)
+ 	#Mean DEEP 23.16471
+
+```
+
+
+
+# Map of Bermuda
+
+```{r}
+map.world <- map_data("world")
+
+Atlantic<-map.world%>%
+filter(region == c('Bermuda', 'USA'))
+
+# make BDA map
+# http://www.diva-gis.org/gdata
+aoi_boundary_Bermuda <- st_read("C:/Github/TPC_BDA_github/Raw_data/BMU_adm/BMU_adm0.shp")
+
+berm<-ggplot() + 
+  geom_sf(data = aoi_boundary_Bermuda, size = 2, color = "black", fill = "lightblue") + 
+  ggtitle("Bermuda") + 
+  coord_sf()+
+  theme_light()
+ggsave('C:/Github/TPC_BDA_github/R_output/berm.png', berm, device = 'png', width = 5, height = 5)
+
+NAO<-ggplot() +
+  geom_polygon(data = map.world, aes(x = long, y = lat, group = group))+
+  geom_point(x= -64.75, y= 32.3)+
+  coord_sf(xlim = c(-100,-40), ylim = c(10,50))+
+  xlab("")+
+  ylab("")+
+  theme_light()
+ ggexport(NAO, filename = "NOA.pdf")
+
+ 
+ggsave('C:/Github/TPC_BDA_github/R_output/NAO.png', NAO, device = 'png', width = 5, height = 5)
+```
+
