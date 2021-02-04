@@ -2,13 +2,15 @@
 title: "PI_date_ BDA"
 author: "Gould, Katelyn"
 date: "10/15/2019"
-output: 
+output:
+  pdf_document:
+    toc: yes
   html_document:
-    toc: true
-    toc_float: true
-    df_print: kable 
     code_folding: hide
-editor_options: 
+    df_print: kable
+    toc: yes
+    toc_float: yes
+editor_options:
   chunk_output_type: console
 ---
 
@@ -54,6 +56,9 @@ library(kableExtra)
   
   #[17] "purrr"      "readr"      "tidyr"      "tibble"     "ggplot2"    "tidyverse"  "stats"      "graphics"  
 #[25] "grDevices"  "utils"      "datasets"   "methods"    "base"  
+
+
+
 ```
 
 
@@ -61,10 +66,8 @@ library(kableExtra)
 #load in data sheet
 #
 #
-#Photo.R <- read.csv("C:/Github/TPC_BDA_github/PI_Curves/PI#_output/Photo.CurveRates_PI.csv")
-Photo.R<-read.csv("C:/Github/TPC_BDA_github/PI_Curves/PI_output/Photo.Rlog.csv")
-View(Photo.R)
-Photo.R$X<-NULL
+Photo.R <- read.csv("C:/Github/TPC_BDA_github/PI_Curves/PI_output/Photo.CurveRates_PI.csv")
+
 PIraw<-ggplot(Photo.R, aes(x=avgPAR, y=umol.cm2.hr, col = fragment.ID))+
   geom_point()+  
   ylim(0,1.5)+
@@ -73,12 +76,6 @@ PIraw<-ggplot(Photo.R, aes(x=avgPAR, y=umol.cm2.hr, col = fragment.ID))+
   facet_wrap(~treatment)
 
 PIraw
-
-ggplot(Photo.R, aes(x=avgPAR, y=Rate.ln, col = fragment.ID))+
-  geom_point()+ 
-  xlab(expression("Photosynthetically Active Radiation ("*mu*"mol photons "*m^-2*s^-1*")"))+
-  ylab(expression(Rate* " ("*mu*"mol"*O[2]*""*cm^-2*h^-1*")"))+
-  facet_wrap(~treatment)
 ```
 
 # PI CURVE FIT- BDA
@@ -86,21 +83,24 @@ ggplot(Photo.R, aes(x=avgPAR, y=Rate.ln, col = fragment.ID))+
 
 ```{r results='hide', message=FALSE}
 Photo.Rs<-subset(Photo.R, treatment=="shallow")
-View(Photo.Rs)
+#View(Photo.Rs)
 
 Photo.RD<-subset(Photo.R, treatment=="deep")
-View(Photo.RD)
+#View(Photo.RD)
 
 Shal <- aggregate(umol.cm2.hr ~indPAR, data = Photo.Rs, FUN=mean)
 Deep <- aggregate(umol.cm2.hr ~ indPAR, data =  Photo.RD, FUN=mean)
 Shal.se <- aggregate(umol.cm2.hr ~ avgPAR, data = Photo.Rs, FUN=std.error)
 Deep.se<- aggregate(umol.cm2.hr ~ avgPAR, data = Photo.RD, FUN=std.error)
 
+
+
 #light levels used for experiment- All corals were mixed in each trial
 
 light<- mean(c(578, 588, 585, 598, 579, 579, 581, 580))
 
 light.se<-std.error(c(578, 588, 585, 598, 579, 579, 581, 580))
+
 
 ```
 
@@ -116,7 +116,8 @@ PCs <- as.numeric(Shal$umol.cm2.h)
 
 
 #fit a model using a Nonlinear Least Squares regression of a non-rectangular hyperbola (Marshall & Biscoe, 1980)
-curve.nlslrc= nlsLM(PCs~(1/(2*theta))*(AQY*PARs+Am-sqrt((AQY*PARs+Am)^2-4*AQY*theta*Am*PARs))-Rd,start=list(Am=(max(PCs)-min(PCs)),AQY=0.0001,Rd=-min(PCs),theta=0.5))
+curve.nlslrc= nlsLM(PCs ~ (1/(2*theta))*(AQY*PARs+Am-sqrt((AQY*PARs+Am)^2-4*AQY*theta*Am*PARs))
+                  -Rd,start=list(Am=(max(PCs)-min(PCs)),AQY=0.0001,Rd=-min(PCs),theta=0.3))
 
 my.fit <- summary(curve.nlslrc)
 #summary of model fit
@@ -157,7 +158,7 @@ Shallow.PI.Output
 
 ```{r results='hide',  message=FALSE}
 #Plot input data and model fit
-shallowPIC<-plot(PARs,PCs,xlab="", ylab="", xlim=c(0,max(PARs)), ylim=c(0,1.5),cex.lab=0.8,cex.axis=0.8,cex=1,main="A) Hog Beacon", adj = 0.05) #set plot info
+plot(PARs,PCs,xlab="", ylab="", xlim=c(0,max(PARs)), ylim=c(0,1.5),cex.lab=0.8,cex.axis=0.8,cex=1,main="A) Shallow", adj = 0.05) #set plot info
 segments(PARs,PCs-Shal.se$umol.cm2.hr,PARs,PCs+Shal.se$umol.cm2.hr)
 mtext(expression("Irradiance ("*mu*"mol photons "*m^-2*s^-1*")"),side=1,line=3.3,cex=1) #add labels
 mtext(expression(Rate*" ("*mu*"mol "*O[2]*" "*cm^-2*h^-1*")"),side=2,line=2,cex=1) #add labels
@@ -165,24 +166,10 @@ mtext(expression(Rate*" ("*mu*"mol "*O[2]*" "*cm^-2*h^-1*")"),side=2,line=2,cex=
 curve((1/(2*summary(curve.nlslrc)$coef[4,1]))*(summary(curve.nlslrc)$coef[2,1]*x+summary(curve.nlslrc)$coef[1,1]-sqrt((summary(curve.nlslrc)$coef[2,1]*x+summary(curve.nlslrc)$coef[1,1])^2-4*summary(curve.nlslrc)$coef[2,1]*summary(curve.nlslrc)$coef[4,1]*summary(curve.nlslrc)$coef[1,1]*x))-summary(curve.nlslrc)$coef[3,1],lwd=2,col="Red",add=T)
 abline(v=Shallow.PI.Output[5], col="gray", lty = 2)
 abline(v=light, col="black", lty = 2) #add line for TPC light level
-#text(x =650, y = 1.5, label = "TPC light", srt = 0)
+text(x =650, y = 1.5, label = "TPC light", srt = 0)
 # add a line to figure for the Ik or saturation point 
 abline(v=Ik, col="blue", lty=3, lwd = 3)
-#text(x =250, y = 1.5, label = "Ik", srt = 0)
-
-#plot(PARs,PCs,xlab="", ylab="", xlim=c(0,max(PARs)), #ylim=c(0,1.5),cex.lab=0.8,cex.axis=0.8,cex=1,main="A) Shallow", #adj = 0.05) #set plot info
-#segments(PARs,PCs-Shal.se$umol.cm2.hr,PARs,PCs+Shal.se$umol.cm2#.hr)
-#mtext(expression("Irradiance ("*mu*"mol photons #"*m^-2*s^-1*")"),side=1,line=3.3,cex=1) #add labels
-#mtext(expression(Rate*" ("*mu*"mol "*O[2]*" #"*cm^-2*h^-1*")"),side=2,line=2,cex=1) #add labels
-##draw the curve using the model fit
-#curve((1/(2*summary(curve.nlslrc)$coef[4,1]))*(summary(curve.nl#slrc)$coef[2,1]*x+summary(curve.nlslrc)$coef[1,1]-sqrt((summary#(curve.nlslrc)$coef[2,1]*x+summary(curve.nlslrc)$coef[1,1])^2-4#*summary(curve.nlslrc)$coef[2,1]*summary(curve.nlslrc)$coef[4,1#]*summary(curve.nlslrc)$coef[1,1]*x))-summary(curve.nlslrc)$coe#f[3,1],lwd=2,col="Red",add=T)
-#abline(v=Shallow.PI.Output[5], col="gray", lty = 2)
-#abline(v=light, col="black", lty = 2) #add line for TPC light #level
-#text(x =650, y = 1.5, label = "TPC light", srt = 0)
-## add a line to figure for the Ik or saturation point 
-#abline(v=Ik, col="blue", lty=3, lwd = 3)
-#text(x =250, y = 1.5, label = "Ik", srt = 0)
-
+text(x =250, y = 1.5, label = "Ik", srt = 0)
 
 ```
 
@@ -200,11 +187,9 @@ PCd <- as.numeric(Deep$umol.cm2.h)
 
 #fit a model using a Nonlinear Least Squares regression of a non-rectangular hyperbola (Marshall & Biscoe, 1980)
 curve.nlslrcd= nlsLM(PCd ~ (1/(2*theta))*(AQY*PARd +Am-sqrt((AQY*PARd +Am)^2-4*AQY*theta*Am*PARd ))
-                  -Rd,start=list(Am=(max(PCd)-min(PCd)),AQY=0.0001,Rd=-min(PCd),theta=0.4))
+                  -Rd,start=list(Am=(max(PCd)-min(PCd)),AQY=0.0001,Rd=-min(PCd),theta=0.3))
 
 my.fit <- summary(curve.nlslrcd)
-
-
 #summary of model fit
 
 
@@ -244,7 +229,7 @@ Deep.PI.Output
 
 ```{r include=false,  message=FALSE}
 #Plot input data and model fit
-plot(PARd ,PCd,xlab="", ylab="", xlim=c(0,max(PARd )), ylim=c(0,1.5),cex.lab=0.8,cex.axis=0.8,cex=1,main="B) Deep Baby", adj = 0.05) #set plot info
+plot(PARd ,PCd,xlab="", ylab="", xlim=c(0,max(PARd )), ylim=c(0,1.5),cex.lab=0.8,cex.axis=0.8,cex=1,main="B) Deep", adj = 0.05) #set plot info
 segments(PARd ,PCd-Deep.se$umol.cm2.hr,PARd ,PCd+Deep.se$umol.cm2.hr)
 mtext(expression("Irradiance ("*mu*"mol photons "*m^-2*s^-1*")"),side=1,line=3.3,cex=1) #add labels
 mtext(expression(Rate*" ("*mu*"mol "*O[2]*" "*cm^-2*h^-1*")"),side=2,line=2,cex=1) #add labels
@@ -253,16 +238,21 @@ mtext(expression(Rate*" ("*mu*"mol "*O[2]*" "*cm^-2*h^-1*")"),side=2,line=2,cex=
 curve((1/(2*summary(curve.nlslrcd)$coef[4,1]))*(summary(curve.nlslrcd)$coef[2,1]*x+summary(curve.nlslrcd)$coef[1,1]-sqrt((summary(curve.nlslrcd)$coef[2,1]*x+summary(curve.nlslrcd)$coef[1,1])^2-4*summary(curve.nlslrcd)$coef[2,1]*summary(curve.nlslrcd)$coef[4,1]*summary(curve.nlslrcd)$coef[1,1]*x))-summary(curve.nlslrcd)$coef[3,1],lwd=2,col="blue",add=T)
 abline(v=Deep.PI.Output[5], col="gray", lty = 2)
 abline(v=light, col="black", lty = 2) #add line for TPC light level
-#text(x =650, y = 1.5, label = "TPC light", srt = 0)
+text(x =650, y = 1.5, label = "TPC light", srt = 0)
 # add a line to figure for the Ik or saturation point 
 abline(v=Ik, col="red", lty=3, lwd = 3)
-#text(x =150, y = 1.5, label = "Ik", srt = 0)
+text(x =100, y = 1.5, label = "Ik", srt = 0)
 
 ```
+
+
 
 ## By Species DLAB
 
 ```{r include=false,  message=FALSE}
+
+
+
 Dlab <- (subset(Photo.R,species== "DLAB", avgPAR & umol.cm2.hr))
 
 PARdlab <- as.numeric(Dlab$indPAR)
@@ -274,7 +264,7 @@ DlabP.se<- aggregate(umol.cm2.hr ~ avgPAR, data = Dlab, FUN=std.error)
 
 #fit a model using a Nonlinear Least Squares regression of a non-rectangular hyperbola (Marshall & Biscoe, 1980)
 curve.nlslrcdlab= nlsLM(PCdlab ~ (1/(2*theta))*(AQY*PARdlab +Am-sqrt((AQY*PARdlab +Am)^2-4*AQY*theta*Am*PARdlab ))
-                  -Rd,start=list(Am=(max(PCdlab)-min(PCdlab)),AQY=0.0001,Rd=-min(PCdlab),theta=0.4))
+                  -Rd,start=list(Am=(max(PCdlab)-min(PCdlab)),AQY=0.0001,Rd=-min(PCdlab),theta=0.3))
 
 
 my.fit <- summary(curve.nlslrcdlab)
@@ -332,6 +322,7 @@ abline(v=Ik, col="red", lty=3, lwd = 3)
 text(x =100, y = 1.5, label = "Ik", srt = 0)
 
 ```
+
 
 ## By Species MCAV
 
@@ -567,6 +558,8 @@ text(x =100, y = 1.5, label = "Ik", srt = 0)
 
 ```{r include=false,  message=FALSE}
 
+
+
 # Use the kableExtra package to view a pretty table for a subset of the data:
   # First, let's just subset the first 10 rows
 Shallow.PI.Output %>% 
@@ -608,7 +601,5 @@ Past.PI.Output %>%
 
 
 ```
-
-
 
 

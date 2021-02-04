@@ -119,9 +119,8 @@ library(ggeffects)
 Data consists of metabolic rates for each individuals Net Photosynthesis, Dark Respiration, and Gross Photosynthesis
 ```{r read in raw data from DataManipulation.R}
 
-raw.data<-read.csv("C:/Github/TPC_BDA_github/R_output/Manuscript/mydata_log.csv")
+raw.data<-read.csv("C:/Github/TPC_BDA_github/R_output/Final/final_NP_R_GP_edited.csv")
 View(raw.data)
-raw.data$X<-NULL
 ```
 
 ## Gross Photosynthesis=[|NP|+|R|]
@@ -132,6 +131,22 @@ mydata<-filter(mydata, rate.type !="NP")
 
 mydataP<-subset(mydata,rate.type=="GP")
 mydataR<-subset(mydata,rate.type=="R")
+
+#Take absolute values of Respiration to log it, then combine dataframes and log both R and GP
+mydataR$umol.cm2.hr<-abs(mydataR$umol.cm2.hr)
+mydataP$umol.cm2.hr<-abs(mydataP$umol.cm2.hr)
+Mydata<-rbind(mydataP,mydataR)
+
+mydata<-Mydata
+
+mydata$log.rate <- log(mydata$umol.cm2.hr + 1) 
+
+mydata%<>%
+  mutate(K=mydata$Temp.C + 273.15)
+
+mydata$temp.Cat<-factor(mydata$temp.Cat)
+#save
+#write.csv(mydata,"C:/Github/TPC_BDA_github/R_output/Final/October_RmarkdownFinal/mydata.csv")
 ```
 
 Log rate over inverse temperature linear regression
@@ -160,119 +175,152 @@ polygon(density(lineardata$log.rate), col="red")
 
 plot(density(linearR$log.rate), main="Density Plot: Rate(R)", ylab="Frequency", sub=paste("Skewness:", round(e1071::skewness(linearR$log.rate), 2)))  # density plot for 'dist'
 polygon(density(linearR$log.rate), col="red")
+
+
+
+
 ```
+
+## Equation and TPC modelling
+Defining the sharpe-schoolfield equation:
+```{r}
+#Define the Schoolfield equation:
+schoolfield_high <- function(lnc, E, Eh, Th, temp, Tc) {
+  Tc <- 273.15 + Tc
+  k <- 8.62e-5
+  boltzmann.term <- lnc + log(exp(E/k*(1/Tc - 1/temp)))
+  inactivation.term <- log(1/(1 + exp(Eh/k*(1/Th - 1/temp))))
+  return(boltzmann.term + inactivation.term)
+}
+```
+
+```{r, include=FALSE}
+#mydata<-read.csv("C:/Github/TPC_BDA_github/R_output/Final/October_RmarkdownFinal/mydata.csv")
+
+##renameing fragment ID's to represent ALL temperatures
+mydata$fragment.ID2<-mydata$fragment.ID
+#
+mydata$fragment.ID2 <- as.character(mydata$fragment.ID2)
+#
+mydata$fragment.ID2 = substr(mydata$fragment.ID2,1,nchar(mydata$fragment.ID2)-2)
+
+mydata$fragment.ID2<-factor(mydata$fragment.ID2)
+
+```
+
+
+# Filter to identify outliers using CooksSD at each temperature within each rate type (GP, R)
 
 ```{r Subset data for TPC fitting (CIs and fitted), include=FALSE}
 #step one subset data: first make subsets for all of your treatment groups 
 #-----subset data-------
 
 #by species
-DLAB.df<-mydata%>%
-  dplyr::filter(species=="DLAB")
-
-MCAV.df<-mydata%>%
-  filter(species=="MCAV")
-
-PAST.df<-mydata%>%
-  filter(species=="PAST")
-
-OFRA.df<-mydata%>%
-  filter(species=="OFRA")
-
-#by Rate.Type
-#-------DLAB-------
-DLAB.DF.GP<-DLAB.df%>%
-  filter(rate.type=="GP")
-
-DLAB.DF.R<-DLAB.df%>%
-  filter(rate.type=="R")
-#-------MCAV-------
-MCAV.DF.GP<-MCAV.df%>%
-  filter(rate.type=="GP")
-
-MCAV.DF.R<-MCAV.df%>%
-  filter(rate.type=="R")
-#-------PAST-------
-PAST.DF.GP<-PAST.df%>%
-  filter(rate.type=="GP")
-
-PAST.DF.R<-PAST.df%>%
-  filter(rate.type=="R")
-#-------OFRA-------
-OFRA.DF.GP<-OFRA.df%>%
-  filter(rate.type=="GP")
-
-OFRA.DF.R<-OFRA.df%>%
-  filter(rate.type=="R")
-
-#-finally by treatment
-#-------DLAB-------
-DLAB.DF.GP.deep<-DLAB.DF.GP%>%
-  filter(treatment=="deep")
-
-DLAB.DF.GP.shallow<-DLAB.DF.GP%>%
-  filter(treatment=="shallow")
-
-DLAB.DF.R.deep<-DLAB.DF.R%>%
-  filter(treatment=="deep")
-
-DLAB.DF.R.shallow<-DLAB.DF.R%>%
-  filter(treatment=="shallow")
-#-------MCAV-------
-MCAV.DF.GP.deep<-MCAV.DF.GP%>%
-  filter(treatment=="deep")
-
-MCAV.DF.GP.shallow<-MCAV.DF.GP%>%
-  filter(treatment=="shallow")
-
-MCAV.DF.R.deep<-MCAV.DF.R%>%
-  filter(treatment=="deep")
-
-MCAV.DF.R.shallow<-MCAV.DF.R%>%
-  filter(treatment=="shallow")
-#-------PAST-------
-PAST.DF.GP.deep<-PAST.DF.GP%>%
-  filter(treatment=="deep")
-
-PAST.DF.GP.shallow<-PAST.DF.GP%>%
-  filter(treatment=="shallow")
-
-PAST.DF.R.deep<-PAST.DF.R%>%
-  filter(treatment=="deep")
-
-PAST.DF.R.shallow<-PAST.DF.R%>%
-  filter(treatment=="shallow")
-#-------OFRA-------
-OFRA.DF.GP.deep<-OFRA.DF.GP%>%
-  filter(treatment=="deep")
-
-OFRA.DF.GP.shallow<-OFRA.DF.GP%>%
-  filter(treatment=="shallow")
-
-OFRA.DF.R.deep<-OFRA.DF.R%>%
-  filter(treatment=="deep")
-
-OFRA.DF.R.shallow<-OFRA.DF.R%>%
-  filter(treatment=="shallow")
+#DLAB.df<-mydata%>%
+#  dplyr::filter(species=="DLAB")
+#
+#MCAV.df<-mydata%>%
+#  filter(species=="MCAV")
+#
+#PAST.df<-mydata%>%
+#  filter(species=="PAST")
+#
+#OFRA.df<-mydata%>%
+#  filter(species=="OFRA")
+#
+##by Rate.Type
+##-------DLAB-------
+#DLAB.DF.GP<-DLAB.df%>%
+#  filter(rate.type=="GP")
+#
+#DLAB.DF.R<-DLAB.df%>%
+#  filter(rate.type=="R")
+##-------MCAV-------
+#MCAV.DF.GP<-MCAV.df%>%
+#  filter(rate.type=="GP")
+#
+#MCAV.DF.R<-MCAV.df%>%
+#  filter(rate.type=="R")
+##-------PAST-------
+#PAST.DF.GP<-PAST.df%>%
+#  filter(rate.type=="GP")
+#
+#PAST.DF.R<-PAST.df%>%
+#  filter(rate.type=="R")
+##-------OFRA-------
+#OFRA.DF.GP<-OFRA.df%>%
+#  filter(rate.type=="GP")
+#
+#OFRA.DF.R<-OFRA.df%>%
+#  filter(rate.type=="R")
+#
+##-finally by treatment
+##-------DLAB-------
+#DLAB.DF.GP.deep<-DLAB.DF.GP%>%
+#  filter(treatment=="deep")
+#
+#DLAB.DF.GP.shallow<-DLAB.DF.GP%>%
+#  filter(treatment=="shallow")
+#
+#DLAB.DF.R.deep<-DLAB.DF.R%>%
+#  filter(treatment=="deep")
+#
+#DLAB.DF.R.shallow<-DLAB.DF.R%>%
+#  filter(treatment=="shallow")
+##-------MCAV-------
+#MCAV.DF.GP.deep<-MCAV.DF.GP%>%
+#  filter(treatment=="deep")
+#
+#MCAV.DF.GP.shallow<-MCAV.DF.GP%>%
+#  filter(treatment=="shallow")
+#
+#MCAV.DF.R.deep<-MCAV.DF.R%>%
+#  filter(treatment=="deep")
+#
+#MCAV.DF.R.shallow<-MCAV.DF.R%>%
+#  filter(treatment=="shallow")
+##-------PAST-------
+#PAST.DF.GP.deep<-PAST.DF.GP%>%
+#  filter(treatment=="deep")
+#
+#PAST.DF.GP.shallow<-PAST.DF.GP%>%
+#  filter(treatment=="shallow")
+#
+#PAST.DF.R.deep<-PAST.DF.R%>%
+#  filter(treatment=="deep")
+#
+#PAST.DF.R.shallow<-PAST.DF.R%>%
+#  filter(treatment=="shallow")
+##-------OFRA-------
+#OFRA.DF.GP.deep<-OFRA.DF.GP%>%
+#  filter(treatment=="deep")
+#
+#OFRA.DF.GP.shallow<-OFRA.DF.GP%>%
+#  filter(treatment=="shallow")
+#
+#OFRA.DF.R.deep<-OFRA.DF.R%>%
+#  filter(treatment=="deep")
+#
+#OFRA.DF.R.shallow<-OFRA.DF.R%>%
+#  filter(treatment=="shallow")
 ```
 
-## old code was throwing errors below- subsequent code works
-```{r Make function to obratin fitted and CI estimates per #genotyope, species, rate type (GP & R), and treatment #(site), include=FALSE}
-##-------calculate fitted and CI estimates per speciers #rate type and treatment-------
-##Step one: make empty DF to fill with fitted values and #run function
-#All.fittedT<-data.frame()#create an empty df to fill with #fitted values
-#All.CIT<-data.frame()#create an empty df. to fill with #confidence intervals
-##
+```{r Make function to obratin fitted and CI estimates per genotyope, species, rate type (GP & R), and treatment (site), include=FALSE}
+#-------calculate fitted and CI estimates per speciers rate type and treatment-------
+#Step one: make empty DF to fill with fitted values and run function
+#All.fittedT<-data.frame()#create an empty df to fill with fitted values
+#All.CIT<-data.frame()#create an empty df. to fill with confidence intervals
+#
 #mult.fit.curves<-function(Data){
-#  fit2 <- nls_multstart(log.rate ~ schoolfield_high(lnc, #E, Eh, Th, temp = K, Tc = 27),
+#  fit2 <- nls_multstart(log.rate ~ schoolfield_high(lnc, E, Eh, Th, temp = K, Tc = 27),
 #                        data = Data,
 #                        iter = 500,
-#                        start_lower = c(lnc = -10, E = #0.1, Eh = 0.2, Th = 285),
-#                        start_upper = c(lnc = 10, E = 2, #Eh = 5, Th = 330),
+#                        start_lower = c(lnc = -10, E = 0.1, Eh = 0.2, Th = 285),
+#                        start_upper = c(lnc = 10, E = 2, Eh = 5, Th = 330),
 #                        supp_errors = 'Y',
 #                        na.action = na.omit,
-#                        lower = c(lnc = -10, E = 0, Eh = #0, Th = 0))
-#print(fit2)
+#                        lower = c(lnc = -10, E = 0, Eh = 0, Th = 0))
+#  #print(fit2)
 #  preds <- augment(fit2)
 #  Data%<>%
 #    mutate(fitted=preds$.fitted,
@@ -281,15 +329,15 @@ OFRA.DF.R.shallow<-OFRA.DF.R%>%
 #  All.fittedT<<-rbind(All.fittedT,Data)
 #  
 #  fit_boots <- Data %>% 
-#    modelr::bootstrap(n = 500, id = 'boot_num') %>% ##change the number for more straps
+#    modelr::bootstrap(n = 500, id = 'boot_num') %>% #change the number for more straps
 #    group_by(boot_num) %>%
-#    mutate(fit = map(strap, ~nls_multstart(log.rate ~ #schoolfield_high(lnc, E, Eh, Th, temp = K, Tc = 27),
-#                                           data = #data.frame(.),
+#    mutate(fit = map(strap, ~nls_multstart(log.rate ~ schoolfield_high(lnc, E, Eh, Th, temp = K, Tc = 27),
+#                                           data = data.frame(.),
 #                                           iter = 500,
-#                                           start_lower = #c(lnc = -10, E = 0.1, Eh = 0.2, Th = 285),
-#                                           start_upper = #c(lnc = 10, E = 2, Eh = 5, Th = 330),
-#                                           lower = #c(lnc=-10, E=0, Eh=0, Th=0),
-#                                           supp_errors = #'Y')
+#                                           start_lower = c(lnc = -10, E = 0.1, Eh = 0.2, Th = 285),
+#                                           start_upper = c(lnc = 10, E = 2, Eh = 5, Th = 330),
+#                                           lower = c(lnc=-10, E=0, Eh=0, Th=0),
+#                                           supp_errors = 'Y')
 #    ))
 #  fit_boots
 #  
@@ -299,7 +347,7 @@ OFRA.DF.R.shallow<-OFRA.DF.R%>%
 #    ungroup()
 #  
 #  new_preds <- Data %>%
-#    do(., data.frame(K = seq(min(.$K), max(.$K), #length.out = 250), stringsAsFactors = FALSE))
+#    do(., data.frame(K = seq(min(.$K), max(.$K), length.out = 250), stringsAsFactors = FALSE))
 #  
 #  preds <- augment(fit2, newdata = new_preds)
 #  
@@ -326,97 +374,28 @@ OFRA.DF.R.shallow<-OFRA.DF.R%>%
 #}
 ```
 
-```{r Make function to obratin fitted and CI estimates per genotyope, rate type (GP & R), and treatment (T1, T2, TC, T3), include=FALSE}
-#-------calculate fitted and CI estimates per speciers rate type and treatment-------
-#Step one: make empty DF to fill with fitted values and run function
-All.fittedT<-data.frame()#create an empty df to fill with fitted values
-All.CIT<-data.frame()#create an empty df. to fill with confidence intervals
-#
-mult.fit.curves<-function(Data){
-  fit2 <- nls_multstart(log.rate ~ schoolfield_high(lnc, E, Eh, Th, temp = K, Tc = 27),
-                        data = Data,
-                        iter = 500,
-                        start_lower = c(lnc = -10, E = 0.1, Eh = 0.2, Th = 285),
-                        start_upper = c(lnc = 10, E = 2, Eh = 5, Th = 330),
-                        supp_errors = 'Y',
-                        na.action = na.omit,
-                        lower = c(lnc = -10, E = 0, Eh = 0, Th = 0))
-print(fit2)
-  preds <- augment(fit2)
-  Data%<>%
-    mutate(fitted=preds$.fitted,
-           residuals=preds$.resid)
-  
-  All.fittedT<<-rbind(All.fittedT,Data)
-  
-  fit_boots <- Data %>% 
-    modelr::bootstrap(n = 500, id = 'boot_num') %>% #change the number for more straps
-    group_by(boot_num) %>%
-    mutate(fit = map(strap, ~nls_multstart(log.rate ~ schoolfield_high(lnc, E, Eh, Th, temp = K, Tc = 27),
-                                           data = data.frame(.),
-                                           iter = 500,
-                                           start_lower = c(lnc = -10, E = 0.1, Eh = 0.2, Th = 285),
-                                           start_upper = c(lnc = 10, E = 2, Eh = 5, Th = 330),
-                                           lower = c(lnc=-10, E=0, Eh=0, Th=0),
-                                           supp_errors = 'Y')
-    ))
-#  fit_boots
-  
-  # get predictions
-#  preds_boot <- fit_boots %>%
-#    unnest(fit %>% map(augment)) %>%
-#    ungroup()
-  
-  new_preds <- Data %>%
-    do(., data.frame(K = seq(min(.$K), max(.$K), length.out = 250), stringsAsFactors = FALSE))
-  
-  preds <- augment(fit2, newdata = new_preds)
-  
-  df.genotype<-(Data$genotype[1])
-  df.rate.type<-(Data$rate.type[1])
-  df.treatment<-(Data$treatment[1])
-   df.treatment<-(Data$species[1])
-  
-  preds <- fit_boots$fit %>%
-    map_df(augment, newdata = new_preds)%>%
-    #unnest(fit %>% map(augment, newdata = new_preds)) %>%
-    # group by each value of K and get quantiles
-    group_by(K) %>%
-    dplyr::summarise(lwr_CI = quantile(.fitted, 0.025),
-              upr_CI = quantile(.fitted, 0.975)) %>%
-    ungroup() %>%
-    merge(., preds, by.x = "K")%>%
-    mutate(genotype=factor(df.genotype),
-           treatment=factor(df.treatment),
-           species=factor(df.species),
-           rate.type=factor(df.rate.type))
-  All.CIT<<-rbind(All.CIT, preds)
-  
-}
-```
-
-
 ```{r Fitting Curves, include=FALSE}
 #DLAB
-mult.fit.curves(DLAB.DF.GP.deep)
-mult.fit.curves(DLAB.DF.GP.shallow)
-mult.fit.curves(DLAB.DF.R.deep)
-mult.fit.curves(DLAB.DF.R.shallow)
-#MCAV
-mult.fit.curves(MCAV.DF.GP.deep)
-mult.fit.curves(MCAV.DF.GP.shallow)
-mult.fit.curves(MCAV.DF.R.deep)
-mult.fit.curves(MCAV.DF.R.shallow)
-#PAST
-mult.fit.curves(PAST.DF.GP.deep)
-mult.fit.curves(PAST.DF.GP.shallow)
-mult.fit.curves(PAST.DF.R.deep)
-mult.fit.curves(PAST.DF.R.shallow)
-#OFRA
-mult.fit.curves(OFRA.DF.GP.deep)
-mult.fit.curves(OFRA.DF.GP.shallow)
-mult.fit.curves(OFRA.DF.R.deep)
-mult.fit.curves(OFRA.DF.R.shallow)
+#mult.fit.curves(DLAB.DF.GP.deep)
+#mult.fit.curves(DLAB.DF.GP.shallow)
+#mult.fit.curves(DLAB.DF.R.deep)
+#mult.fit.curves(DLAB.DF.R.shallow)
+##MCAV
+#mult.fit.curves(MCAV.DF.GP.deep)
+#mult.fit.curves(MCAV.DF.GP.shallow)
+#mult.fit.curves(MCAV.DF.R.deep)
+#mult.fit.curves(MCAV.DF.R.shallow)
+##PAST
+#mult.fit.curves(PAST.DF.GP.deep)
+#mult.fit.curves(PAST.DF.GP.shallow)
+#mult.fit.curves(PAST.DF.R.deep)
+#mult.fit.curves(PAST.DF.R.shallow)
+##OFRA
+#mult.fit.curves(OFRA.DF.GP.deep)
+#mult.fit.curves(OFRA.DF.GP.shallow)
+#mult.fit.curves(OFRA.DF.R.deep)
+#mult.fit.curves(OFRA.DF.R.shallow)
+
 
 ```
 # TPC graphs {.tabset}
@@ -927,41 +906,37 @@ sumE = summarySE(testGP,
                 measurevar="E",            groupvars=c("treatment","species"))
 
 sumE
-
+sumEr
 
 
 #Eh
 sumEh = summarySE(testGP,
                 measurevar="Eh",            groupvars=c("treatment","species"))
 
-sumEh
 
 #Th
 sumTh = summarySE(testGP,
                 measurevar="Th_C",            groupvars=c("treatment","species"))
 
-sumTh
+
 #lnc
 sumlnc = summarySE(testGP,
                 measurevar="lnc",            groupvars=c("treatment","species"))
 
-sumlnc
 #Topt
 sumtopt = summarySE(testGPt,
                 measurevar="topt_C",            groupvars=c("treatment","species"))
 
-sumtopt
+
 #Pmax
 sumpmax = summarySE(testGP, na.rm=TRUE,
                 measurevar="Pmax",            groupvars=c("treatment","species"))
-sumpmax
+
 
 ### Respiration parameter sums
 #E
 sumEr = summarySE(testR,
                 measurevar="E",            groupvars=c("treatment","species"))
-
-sumEr
 
 sumlogEr = summarySE(testRE,
                 measurevar="log.E",            groupvars=c("treatment","species"))
@@ -976,22 +951,21 @@ sumEhr = summarySE(testR,
 sumThr = summarySE(testR,
                 measurevar="Th_C",            groupvars=c("treatment","species"))
 
-sumThr
+
 #lnc
 sumlncr = summarySE(testR,
                 measurevar="lnc",            groupvars=c("treatment","species"))
 
-sumlncr
+
 #Topt
 sumtoptr = summarySE(testR,
                 measurevar="topt_C",            groupvars=c("treatment","species"))
 
-sumtoptr
 
 #Pmax
 sumpmaxr = summarySE(testR,na.rm=TRUE,
                 measurevar="Pmax",            groupvars=c("treatment","species"))
-sumpmaxr
+
 ##############
 sumpmax
 sumtopt
@@ -1005,7 +979,6 @@ sumlncr
 sumThr
 sumEhr
 sumEr
-sumlogEr
 ##############
 #plot
 pd = position_dodge(.2)
@@ -1119,22 +1092,6 @@ ggplot(sumEr, aes(x=species,
                 color=treatment)) +
     geom_errorbar(aes(ymin=E-se,
                       ymax=E+se),
-                   width=.2, size=0.7, position=pd) +
-    geom_point(shape=15, size=4, position=pd) +
-    theme(
-          axis.title.y = element_text(vjust= 1.8),
-          axis.title.x = element_text(vjust= -0.5),
-          axis.title = element_text(face = "bold")) +
-  ggtitle("Respiration")+
-  xlab("Species")+
-  scale_color_manual(breaks = c("deep", "shallow"), values= c("blue","red"))
-
-#logE_R
-ggplot(sumlogEr, aes(x=species,
-                y=log.E,
-                color=treatment)) +
-    geom_errorbar(aes(ymin=log.E-se,
-                      ymax=log.E+se),
                    width=.2, size=0.7, position=pd) +
     geom_point(shape=15, size=4, position=pd) +
     theme(
@@ -2117,20 +2074,17 @@ testGP
 testR
 ```{r}
 ### 
-mPGPsp<-lm(Pmax~species*treatment,testGP)
-summary(mPGPsp)
-mPGPsp2<-aov(Pmax~species*treatment,testGP)
-summary(mPGPsp2)
-anova(mPGPsp)
-anova(mPGPsp2)
-
+mPGPsp<-aov(Pmax~species*treatment,testGP)
+summary(mPGPsp) 
 ## check for outliers
 cooksd <- cooks.distance(mPGPsp)
 plot(cooksd, pch=".", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
 abline(h = 4*mean(cooksd, na.rm=TRUE), col="red")  # add cutoff line--In general use, those observations that have a cook’s distance greater than 4 times the mean may be classified as influential. This is not a hard boundary.
 text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=TRUE),names(cooksd),""), cex=0.6, pos=2, col="red")
 
-testGPP<-testGP
+#remove 1 MA1,2 MA2
+testGPP<-testGP[-c(1,2),]
+
 mPGPsp<-aov(Pmax~species*treatment, testGPP)
 summary(mPGPsp)
 
@@ -2146,7 +2100,7 @@ cooksd <- cooks.distance(mPGPsp)
 plot(cooksd, pch=".", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
 abline(h = 4*mean(cooksd, na.rm=TRUE), col="red")  # add cutoff line--In general use, those observations that have a cook’s distance greater than 4 times the mean may be classified as influential. This is not a hard boundary.
 text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=TRUE),names(cooksd),""), cex=0.6, pos=2, col="red")
-# no outliers but 3 NaNs
+
 
 ######
 ######
@@ -2416,9 +2370,19 @@ summary(mPGPsp)
 mPGPsp<-aov(Pmax~species, testR)
 summary(mPGPsp)
 
+## check for outliers
+cooksd <- cooks.distance(mPGPsp)
+plot(cooksd, pch=".", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
+abline(h = 4*mean(cooksd, na.rm=TRUE), col="red")  # add cutoff line--In general use, those observations that have a cook’s distance greater than 4 times the mean may be classified as influential. This is not a hard boundary.
+text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=TRUE),names(cooksd),""), cex=0.6, pos=2, col="red")
+# -19 SF1
+testRP<-testR[-(19),]
+
+mPGPsp<-aov(Pmax~species, testRP)
+summary(mPGPsp)
 
 ggline(testGPP, "species", "Pmax",color= "species", add=c("mean_se", "dotplot"))
-ggline(testR, "species", "Pmax",color= "species", add=c("mean_se", "dotplot"))
+ggline(testRP, "species", "Pmax",color= "species", add=c("mean_se", "dotplot"))
 
 
 #boxplot(Pmax ~ species, data=DeepsppGP, frame = FALSE, 
@@ -3267,15 +3231,14 @@ testREs
 # model
 mPGPsp<-aov(E~species*treatment,testGP)
 summary(mPGPsp) 
-
 ## check for outliers
 cooksd <- cooks.distance(mPGPsp)
 plot(cooksd, pch=".", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
 abline(h = 4*mean(cooksd, na.rm=TRUE), col="red")  # add cutoff line--In general use, those observations that have a cook’s distance greater than 4 times the mean may be classified as influential. This is not a hard boundary.
 text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=TRUE),names(cooksd),""), cex=0.6, pos=2, col="red")
 
-#remove 13- is 0 as is another not removing ,15 SA3,19 SF1
-testGPE<-testGP[-c(15,19),]
+#remove 13 SA1,15 SA3,19 SF1
+testGPE<-testGP[-c(13,15,19),]
 
 mPGPsp<-aov(E~species*treatment, testGPE)
 summary(mPGPsp)
@@ -3287,13 +3250,13 @@ summary(mPGPsp)
 
 ## check for outliers
 cooksd <- cooks.distance(mPGPsp)
-plot(cooksd, pch=".", cex=4, main="Influential Obs by Cooks distance")  # plot cook's distance
-abline(h = 4.05*mean(cooksd, na.rm=TRUE), col="red")  # add cutoff line--In general use, those observations that have a cook’s distance greater than 4 times the mean may be classified as influential. This is not a hard boundary.
-text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4.25*mean(cooksd, na.rm=TRUE),names(cooksd),""), cex=0.6, pos=2, col="red")
+plot(cooksd, pch=".", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
+abline(h = 4*mean(cooksd, na.rm=TRUE), col="red")  # add cutoff line--In general use, those observations that have a cook’s distance greater than 4 times the mean may be classified as influential. This is not a hard boundary.
+text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=TRUE),names(cooksd),""), cex=0.6, pos=2, col="red")
 
-#remove 4 MC1 Use testR as outlier does not make sense as one SA3 is above that value for E
-#testRE<-testR[-(4),]
-mPGPsp<-aov(E~species*treatment, testR)
+#remove 4 MC1
+testRE<-testR[-(4),]
+mPGPsp<-aov(E~species*treatment, testRE)
 summary(mPGPsp)
 
 ggline(testGPEs, "species", "E",color= "treatment", add=c("mean_se", "dotplot"))
@@ -3317,16 +3280,15 @@ interaction.plot(x.factor = testREs$species, trace.factor = testREs$treatment,
                  xlab = "Species", ylab="E")
 
 
-res.aov3 <- aov(E ~ species * treatment, data = testGPE)
-#res.aov3r <- aov(E~ species * treatment, data = testRE)
-res.aov3r2 <- aov(E~ species * treatment, data = testR)
+res.aov3 <- aov(E ~ species * treatment, data = testGPEs)
+res.aov3r <- aov(E~ species * treatment, data = testREs)
 
 summary(res.aov3) 
-#summary(res.aov3r)
-summary(res.aov3r2)
+summary(res.aov3r)
+
 
 model.tables(res.aov3, type="means", se= TRUE)
-model.tables(res.aov3r2, type="means", se= TRUE)
+model.tables(res.aov3r, type="means", se= TRUE)
 
 #TukeyHSD(res.aov3)
 #TukeyHSD(res.aov3r)
@@ -3353,9 +3315,6 @@ plot(res.aov3, 1)
 plot(res.aov3r, 1)
 leveneTest(E ~ species* treatment, data = testGPEs)
 leveneTest(E ~ species* treatment, data = testREs)
-leveneTest(E ~ species* treatment, data = testGPE)
-leveneTest(E ~ species* treatment, data = testRE)
-leveneTest(E ~ species* treatment, data = testR)
 #no evidence to suggest that the variance across groups is statistically significantly different. Therefore, we can assume the homogeneity of variances in the different treatment groups.
 
 # 2. Normality
@@ -3366,11 +3325,10 @@ plot(res.aov3r, 2)
 # Extract the residuals
 aov_residuals3 <- residuals(object = res.aov3)
 aov_residuals3r <- residuals(object = res.aov3r)
-aov_residuals3r2 <- residuals(object = res.aov3r2)
 # Run Shapiro-Wilk test
 shapiro.test(x = aov_residuals3 )
 shapiro.test(x = aov_residuals3r )
-shapiro.test(x = aov_residuals3r2 )
+
 ### make tables of pvalues for interaction GRoss photo
 
 res.aov3<-aov(E~species*treatment,testGPEs)
@@ -3895,8 +3853,8 @@ plot(cooksd, pch=".", cex=2, main="Influential Obs by Cooks distance")  # plot c
 abline(h = 4*mean(cooksd, na.rm=TRUE), col="red")  # add cutoff line--In general use, those observations that have a cook’s distance greater than 4 times the mean may be classified as influential. This is not a hard boundary.
 text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=TRUE),names(cooksd),""), cex=0.6, pos=2, col="red")
 
-#remove 5MC2
-testGPEh<-testGP[-(5),]
+#remove 5MC2 6 MC3
+testGPEh<-testGP[-c(5,6),]
 
 mPGPsp<-aov(Eh~species*treatment, testGPEh)
 summary(mPGPsp)
@@ -3911,8 +3869,8 @@ plot(cooksd, pch=".", cex=2, main="Influential Obs by Cooks distance")  # plot c
 abline(h = 4*mean(cooksd, na.rm=TRUE), col="red")  # add cutoff line--In general use, those observations that have a cook’s distance greater than 4 times the mean may be classified as influential. This is not a hard boundary.
 text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=TRUE),names(cooksd),""), cex=0.6, pos=2, col="red")
 
-#remove 5MC2
-testREh<-testR[-(5),]
+#remove 5MC2 6 MC3, 8 MF2
+testREh<-testR[-c(5,6,8),]
 
 # model
 mPGPsp<-aov(Eh~species*treatment, testREh)
@@ -3939,8 +3897,8 @@ interaction.plot(x.factor = testREht$species, trace.factor = testREht$treatment,
                  xlab = "Species", ylab="Eh")
 
 
-res.aov3 <- aov(Eh ~ species * treatment, data = testGPEh)
-res.aov3r <- aov(Eh~ species * treatment, data = testREh)
+res.aov3 <- aov(Eh ~ species * treatment, data = testGPEhs)
+res.aov3r <- aov(Eh~ species * treatment, data = testREht)
 
 
 summary(res.aov3) 
@@ -3949,7 +3907,7 @@ summary(res.aov3r)
 model.tables(res.aov3, type="means", se= TRUE)
 model.tables(res.aov3r, type="means", se= TRUE)
 
-TukeyHSD(res.aov3)
+#TukeyHSD(res.aov3)
 #TukeyHSD(res.aov3r)
 #
 #TukeyHSD(res.aov3, which = "species") 
@@ -3958,17 +3916,17 @@ TukeyHSD(res.aov3)
 summary(glht(res.aov3, linfct = mcp(species = "Tukey")))
 summary(glht(res.aov3r, linfct = mcp(species = "Tukey")))
 
-pairwise.t.test(testGPEh$Eh, testGPEh$species,
+pairwise.t.test(testGPEhs$Eh, testGPEhs$species,
                 p.adjust.method = "BH")
-pairwise.t.test(testREh$Eh, testREh$species,
+pairwise.t.test(testREht$Eh, testREht$species,
                 p.adjust.method = "BH")
 ##ANOVA assumes that the data are normally distributed and the variance across groups are homogeneous. We can check that with some diagnostic plots.
 
 # 1. Homogeneity of variances
 plot(res.aov3, 1) 
 plot(res.aov3r, 1)
-leveneTest(Eh ~ species* treatment, data = testGPEh)
-leveneTest(Eh ~ species* treatment, data = testREh)
+leveneTest(Eh ~ species* treatment, data = testGPEhs)
+leveneTest(Eh ~ species* treatment, data = testREht)
 #no evidence to suggest that the variance across groups is statistically significantly different. Therefore, we can assume the homogeneity of variances in the different treatment groups.
 
 # 2. Normality
@@ -4421,14 +4379,12 @@ plot(cooksd, pch=".", cex=2, main="Influential Obs by Cooks distance")  # plot c
 abline(h = 4*mean(cooksd, na.rm=TRUE), col="red")  # add cutoff line--In general use, those observations that have a cook’s distance greater than 4 times the mean may be classified as influential. This is not a hard boundary.
 text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=TRUE),names(cooksd),""), cex=0.6, pos=2, col="red")
 
-#remove 13 SA1 15 SA3 reject cooks
-testGPTh_C<-testGP[-(15),]
-##
-#mPGPsp<-aov(Th_C~species*treatment, testGPTh_Ct)
-#summary(mPGPsp)
+#remove 13 SA1 15 SA3
+testGPTh_Ct<-testGP[-c(13,15),]
 
-mPGPsp<-aov(Th_C~species*treatment,testGPTh_C)
+mPGPsp<-aov(Th_C~species*treatment, testGPTh_Ct)
 summary(mPGPsp)
+
 # model
 mPGPsp<-aov(Th_C~species*treatment, testR)
 summary(mPGPsp)
@@ -4437,16 +4393,14 @@ summary(mPGPsp)
 cooksd <- cooks.distance(mPGPsp)
 plot(cooksd, pch=".", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
 abline(h = 4*mean(cooksd, na.rm=TRUE), col="red")  # add cutoff line--In general use, those observations that have a cook’s distance greater than 4 times the mean may be classified as influential. This is not a hard boundary.
-text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=TRUE),names(cooksd),""), cex=0.8, pos=1, col="red")
+text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=TRUE),names(cooksd),""), cex=0.6, pos=2, col="red")
 
-#remove 3 MA3  
-testRTh_C<-testR[-(3),]
-
+#remove 3 MA3 1 MA1 
+testRTh_C<-testR[-c(1,3),]
 
 # model
 mPGPsp<-aov(Th_C~species*treatment, testRTh_C)
 summary(mPGPsp)
-
 
 ggline(testGPTh_Ct, "species", "Th_C",color= "treatment", add=c("mean_se", "dotplot"))
 ggline(testRTh_Cs, "species", "Th_C",color= "treatment", add=c("mean_se", "dotplot"))
@@ -4469,8 +4423,8 @@ interaction.plot(x.factor = testRTh_Cs$species, trace.factor = testRTh_Cs$treatm
                  xlab = "Species", ylab="Th_C")
 
 
-res.aov3 <- aov(Th_C ~ species * treatment, data = testGP)
-res.aov3r <- aov(Th_C~ species * treatment, data = testRTh_C)
+res.aov3 <- aov(Th_C ~ species * treatment, data = testGPTh_Ct)
+res.aov3r <- aov(Th_C~ species * treatment, data = testRTh_Cs)
 
 
 summary(res.aov3) 
@@ -4479,8 +4433,8 @@ summary(res.aov3r)
 model.tables(res.aov3, type="means", se= TRUE)
 model.tables(res.aov3r, type="means", se= TRUE)
 
-TukeyHSD(res.aov3)
-TukeyHSD(res.aov3r)
+#TukeyHSD(res.aov3)
+#TukeyHSD(res.aov3r)
 #
 #TukeyHSD(res.aov3, which = "species") 
 #TukeyHSD(res.aov3r, which = "species")
@@ -4497,9 +4451,8 @@ pairwise.t.test(testRTh_Cs$Th_C, testRTh_Cs$species,
 # 1. Homogeneity of variances
 plot(res.aov3, 1) 
 plot(res.aov3r, 1)
-leveneTest(Th_C ~ species* treatment, data = testGP)
-leveneTest(Th_C ~ species* treatment, data = testRTh_C)
-
+leveneTest(Th_C ~ species* treatment, data = testGPTh_Ct)
+leveneTest(Th_C ~ species* treatment, data = testRTh_Cs)
 #no evidence to suggest that the variance across groups is statistically significantly different. Therefore, we can assume the homogeneity of variances in the different treatment groups.
 
 # 2. Normality
@@ -4510,51 +4463,57 @@ plot(res.aov3r, 2)
 # Extract the residuals
 aov_residuals3 <- residuals(object = res.aov3)
 aov_residuals3r <- residuals(object = res.aov3r)
-aov_residuals3rt <- residuals(object = res.aov3rt)
 # Run Shapiro-Wilk test
 shapiro.test(x = aov_residuals3 )
 shapiro.test(x = aov_residuals3r )
-#shapiro.test(x = aov_residuals3rt )
+
 
 ### log parameter Th_C GP- failed shapiro
-#testGPTh_C$log.Th_C <- log(testGPTh_C$Th_C+ 1) 
-#
-#mPGPsp<-aov(log.Th_C~species*treatment,testGPTh_C)
-#summary(mPGPsp)
+testGPTh_Ct$log.Th_C <- log(testGPTh_Ct$Th_C+ 1) 
 
-## Extract the residuals
-#aov_residuals <- residuals(object = mPGPsp )
-## Run Shapiro-Wilk test
-#shapiro.test(x = aov_residuals )
-#leveneTest(log.Th_C~treatment, testGPTh_C) 
-####
+mPGPsp<-aov(log.Th_C~treatment,testGPTh_Ct)
+summary(mPGPsp)
+## check for outliers
+cooksd <- cooks.distance(mPGPsp)
+plot(cooksd, pch=".", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
+abline(h = 4*mean(cooksd, na.rm=TRUE), col="red")  # add cutoff line--In general use, those observations that have a cook’s distance greater than 4 times the mean may be classified as influential. This is not a hard boundary.
+text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=TRUE),names(cooksd),""), cex=0.6, pos=2, col="red")
+
+#remove 18 SF1 21 SL1 
+testGPTh_Ct2<-testGPTh_Ct[-c(18,21),]
+mPGPsp<-aov(log.Th_C~treatment,testGPTh_Ct2)
+summary(mPGPsp)
+# Extract the residuals
+aov_residuals <- residuals(object = mPGPsp )
+# Run Shapiro-Wilk test
+shapiro.test(x = aov_residuals )
+leveneTest(log.Th_C~treatment, testGPTh_Ct2) 
+
 
 ### log parameter E R- failed shapiro
-testRTh_C$log.Th_C <- log(testRTh_C$Th_C+ 1) 
+testRTh_Cs$log.Th_C <- log(testRTh_Cs$Th_C+ 1) 
 
-mPGPsp<-aov(log.Th_C~species*treatment,testRTh_C)
+mPGPsp<-aov(log.Th_C~species*treatment,testRTh_Cs)
 summary(mPGPsp)
 # not significant 
 # Extract the residuals
 aov_residuals <- residuals(object = mPGPsp )
 # Run Shapiro-Wilk test
 shapiro.test(x = aov_residuals )
-leveneTest(log.Th_C~treatment, testRTh_C) 
+leveneTest(log.Th_C~treatment, testRTh_Cs) 
 
 
 ### make tables of pvalues for interaction GRoss photo
 
-res.aov3<-aov(log.Th_C~species*treatment,testRTh_C)
+res.aov3<-aov(Th_C~species*treatment,testGPTh_Ct)
 sstable<-Anova(res.aov3, type=2)
 sstable
 #write.csv(sstable, "C:/Github/TPC_BDA_github/Th_CGPinPval.csv")
 
-TukeyHSD(res.aov3)
-
+#TukeyHSD(res.aov3)
 summary.aov(res.aov3, split = list(species=list(DLAB=0, MCAV=1, OFRA=2, PAST=3)))
 
 contrasts <- summary.aov(res.aov3, split = list(species=list(DLAB=0, MCAV=1, OFRA=2, PAST=3)))[[1]][c(1,2,3, 4,5, 7), c(2, 1, 4, 5)]
-contrasts
 
 # select the rows to combine
 maineffects <- sstable[c(1,2), ]
@@ -4764,7 +4723,7 @@ leveneTest(log.Th_C~species, testGPTh_Ct)
 ### log parameter E R- failed shapiro
 testRTh_Cs$log.Th_C <- log(testRTh_Cs$Th_C+ 1) 
 
-mPGPsp<-aov(log.Th_C~species,testRTh_C)
+mPGPsp<-aov(log.Th_C~species,testRTh_Cs)
 summary(mPGPsp)
 # not significant 
 # Extract the residuals
@@ -4830,7 +4789,6 @@ cooksd <- cooks.distance(mPGPsp)
 plot(cooksd, pch=".", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
 abline(h = 4*mean(cooksd, na.rm=TRUE), col="red")  
 text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=TRUE),names(cooksd),""), cex=0.6, pos=2, col="red")
-
 
 #DLABR
 
@@ -4967,7 +4925,30 @@ shapiro.test(x = aov_residualsagp )
 shapiro.test(x = aov_residualsar )
 
 
+### log parameter E GP- failed shapiro
+testGPTh_Ct$log.Th_C <- log(testGPTh_Ct$Th_C+ 1) 
 
+mPGPsp<-aov(log.Th_C~treatment,testGPTh_Ct)
+summary(mPGPsp)
+# not significant 
+# Extract the residuals
+aov_residuals <- residuals(object = mPGPsp )
+# Run Shapiro-Wilk test
+shapiro.test(x = aov_residuals )
+leveneTest(log.Th_C~treatment, testGPTh_Ct) 
+
+
+### log parameter E R- failed shapiro
+testRTh_Cs$log.Th_C <- log(testRTh_Cs$Th_C+ 1) 
+
+mPGPsp<-aov(log.Th_C~treatment,testRTh_Cs)
+summary(mPGPsp)
+# not significant 
+# Extract the residuals
+aov_residuals <- residuals(object = mPGPsp )
+# Run Shapiro-Wilk test
+shapiro.test(x = aov_residuals )
+leveneTest(log.Th_C~treatment, testRTh_Cs) 
 ```
 
  lnc
@@ -4995,7 +4976,7 @@ testGPlnc<-testGP[-(15),]
 
 mPGPsp<-aov(lnc~species*treatment, testGPlnc)
 summary(mPGPsp)
-anova
+
 # model
 mPGPsp<-aov(lnc~species*treatment, testR)
 summary(mPGPsp)
@@ -5034,8 +5015,8 @@ interaction.plot(x.factor = testRlncs$species, trace.factor = testRlncs$treatmen
                  xlab = "Species", ylab="lnc")
 
 
-res.aov3 <- aov(lnc ~ species * treatment, data = testGPlnc)
-res.aov3r <- aov(lnc~ species * treatment, data = testRlnc)
+res.aov3 <- aov(lnc ~ species * treatment, data = testGPlnct)
+res.aov3r <- aov(lnc~ species * treatment, data = testRlncs)
 
 
 summary(res.aov3) 
@@ -5062,8 +5043,8 @@ pairwise.t.test(testRlncs$lnc, testRlncs$species,
 # 1. Homogeneity of variances
 plot(res.aov3, 1) 
 plot(res.aov3r, 1)
-leveneTest(lnc ~ species* treatment, data = testGPlnc)
-leveneTest(lnc ~ species* treatment, data = testRlnc)
+leveneTest(lnc ~ species* treatment, data = testGPlnct)
+leveneTest(lnc ~ species* treatment, data = testRlncs)
 #no evidence to suggest that the variance across groups is statistically significantly different. Therefore, we can assume the homogeneity of variances in the different treatment groups.
 
 # 2. Normality
@@ -5183,7 +5164,7 @@ sstablelnc2%>%
 ```
 
 
-lnc by species
+Topt by species
 ```{r}
 # Topt by species
 
@@ -6943,12 +6924,8 @@ plot(cooksd, pch=".", cex=2, main="Influential Obs by Cooks distance")  # plot c
 abline(h = 4*mean(cooksd, na.rm=TRUE), col="red")  # add cutoff line--In general use, those observations that have a cook’s distance greater than 4 times the mean may be classified as influential. This is not a hard boundary.
 text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=TRUE),names(cooksd),""), cex=0.6, pos=2, col="red")
 
-#  5 MC2
+#  5
 GPEh<-testGP[-(5),]
-
-mPGPsp<-aov(Eh~treatment,GPEh)
-TukeyHSD(mPGPsp)
-summary(mPGPsp)
 
 #R
 #### Test for significant R in E
